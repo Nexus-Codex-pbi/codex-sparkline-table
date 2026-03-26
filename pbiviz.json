@@ -1,0 +1,21 @@
+{
+  "visual": {
+    "name": "pbiSparklineTable",
+    "displayName": "Sparkline Table",
+    "guid": "pbiSparklineTableE1F2A3B4C5D6E7F8A9B0C1D2E3F4A5B6",
+    "visualClassName": "Visual",
+    "version": "1.0.0.0",
+    "description": "Data table with inline sparkline trend lines for compact trend visualization.",
+    "supportUrl": "https://nexusai.nexus",
+    "gitHubUrl": ""
+  },
+  "apiVersion": "5.9.1",
+  "author": { "name": "Neil Armstrong", "email": "harmsolo13@gmail.com" },
+  "assets": { "icon": "assets/icon.png" },
+  "externalJS": null,
+  "style": "style/visual.less",
+  "capabilities": "capabilities.json",
+  "dependencies": null,
+  "stringResources": [],
+  "version": "1.0.0.0"
+}

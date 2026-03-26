@@ -1,0 +1,143 @@
+{
+    "dataRoles": [
+        {
+            "displayName": "Row Category",
+            "name": "rowCategory",
+            "kind": "Grouping",
+            "description": "What each row represents (e.g. Beat, BatteryCode)"
+        },
+        {
+            "displayName": "Sparkline Category",
+            "name": "sparklineCategory",
+            "kind": "Grouping",
+            "description": "Time axis for sparklines (e.g. Date)"
+        },
+        {
+            "displayName": "Measures",
+            "name": "measures",
+            "kind": "Measure",
+            "requiredTypes": [{ "numeric": true }],
+            "description": "Numeric metric columns displayed in the table."
+        },
+        {
+            "displayName": "Text Columns",
+            "name": "textColumns",
+            "kind": "Measure",
+            "requiredTypes": [{ "text": true }],
+            "description": "Text measures like status badges, displayed as columns after numeric measures."
+        },
+        {
+            "displayName": "Sparkline Value",
+            "name": "sparklineValue",
+            "kind": "Measure",
+            "requiredTypes": [{ "numeric": true }],
+            "description": "Numeric measure for the sparkline trend chart."
+        }
+    ],
+    "objects": {
+        "tableSettings": {
+            "properties": {
+                "headerBackground": {
+                    "type": { "fill": { "solid": { "color": true } } }
+                },
+                "alternateRowColor": {
+                    "type": { "fill": { "solid": { "color": true } } }
+                },
+                "fontSize": {
+                    "type": { "numeric": true }
+                },
+                "rowHeight": {
+                    "type": { "numeric": true }
+                },
+                "showGridLines": {
+                    "type": { "bool": true }
+                }
+            }
+        },
+        "sparklineSettings": {
+            "properties": {
+                "sparklineWidth": {
+                    "type": { "numeric": true }
+                },
+                "sparklineHeight": {
+                    "type": { "numeric": true }
+                },
+                "sparklineColor": {
+                    "type": { "fill": { "solid": { "color": true } } }
+                },
+                "sparklineType": {
+                    "type": {
+                        "enumeration": [
+                            { "displayName": "Line", "value": "line" },
+                            { "displayName": "Area", "value": "area" },
+                            { "displayName": "Bar", "value": "bar" }
+                        ]
+                    }
+                },
+                "showDot": {
+                    "type": { "bool": true }
+                },
+                "dotColor": {
+                    "type": { "fill": { "solid": { "color": true } } }
+                },
+                "lineWidth": {
+                    "type": { "numeric": true }
+                }
+            }
+        },
+        "columnWidthSettings": {
+            "properties": {
+                "categoryWidth": {
+                    "type": { "numeric": true }
+                },
+                "measureWidth": {
+                    "type": { "numeric": true }
+                },
+                "textWidth": {
+                    "type": { "numeric": true }
+                },
+                "sparklineWidth": {
+                    "type": { "numeric": true }
+                }
+            }
+        },
+        "sortSettings": {
+            "properties": {
+                "sortColumn": {
+                    "type": { "numeric": true }
+                },
+                "sortDirection": {
+                    "type": {
+                        "enumeration": [
+                            { "displayName": "Ascending", "value": "asc" },
+                            { "displayName": "Descending", "value": "desc" }
+                        ]
+                    }
+                }
+            }
+        }
+    },
+    "dataViewMappings": [
+        {
+            "categorical": {
+                "categories": {
+                    "select": [
+                        { "for": { "in": "rowCategory" } },
+                        { "for": { "in": "sparklineCategory" } }
+                    ],
+                    "dataReductionAlgorithm": {
+                        "top": { "count": 5000 }
+                    }
+                },
+                "values": {
+                    "select": [
+                        { "bind": { "to": "measures" } },
+                        { "bind": { "to": "textColumns" } },
+                        { "bind": { "to": "sparklineValue" } }
+                    ]
+                }
+            }
+        }
+    ],
+    "privileges": []
+}

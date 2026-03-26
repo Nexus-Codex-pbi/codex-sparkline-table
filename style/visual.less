@@ -1,0 +1,109 @@
+.sparkline-table-container {
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+    position: relative;
+
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: auto;
+    }
+
+    thead {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+
+        th {
+            padding: 6px 10px;
+            text-align: left;
+            font-weight: 600;
+            white-space: nowrap;
+            border-bottom: 2px solid #e0ddd4;
+            color: #333;
+            user-select: none;
+            cursor: default;
+
+            &.measure-cell {
+                text-align: right;
+            }
+
+            &.sparkline-cell {
+                text-align: center;
+            }
+        }
+    }
+
+    tbody {
+        tr {
+            transition: background-color 0.15s ease;
+
+            &:hover {
+                background-color: rgba(19, 0, 100, 0.06) !important;
+            }
+        }
+
+        td {
+            padding: 4px 10px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            color: #333;
+            vertical-align: middle;
+
+            &.sparkline-cell {
+                text-align: center;
+                padding: 2px 6px;
+                line-height: 0;
+                min-width: 80px;
+                width: 100%;
+            }
+
+            &.measure-cell {
+                text-align: right;
+                font-variant-numeric: tabular-nums;
+            }
+
+            &.category-cell {
+                font-weight: 500;
+                max-width: 200px;
+            }
+        }
+    }
+
+    &.grid-lines {
+        tbody td {
+            border-bottom: 1px solid #e8e5dc;
+        }
+        thead th {
+            border-bottom: 2px solid #d0cdc4;
+        }
+    }
+
+    &.no-grid-lines {
+        tbody td {
+            border-bottom: none;
+        }
+    }
+
+    .sparkline-svg {
+        display: block;
+        width: 100%;
+        vertical-align: middle;
+    }
+
+    .empty-state {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        width: 100%;
+        color: #999;
+        font-size: 14px;
+        font-style: italic;
+        text-align: center;
+        padding: 20px;
+    }
+}

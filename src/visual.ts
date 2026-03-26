@@ -1,0 +1,549 @@
+"use strict";
+
+import powerbi from "powerbi-visuals-api";
+import { FormattingSettingsService } from "powerbi-visuals-utils-formattingmodel";
+import { scaleLinear } from "d3-scale";
+import { line, area, curveMonotoneX } from "d3-shape";
+import "./../style/visual.less";
+
+import VisualConstructorOptions = powerbi.extensibility.visual.VisualConstructorOptions;
+import VisualUpdateOptions = powerbi.extensibility.visual.VisualUpdateOptions;
+import IVisual = powerbi.extensibility.visual.IVisual;
+import IVisualEventService = powerbi.extensibility.IVisualEventService;
+import DataView = powerbi.DataView;
+
+import { VisualFormattingSettingsModel } from "./settings";
+import { formatValue, CODEX_TOKENS } from "./utils";
+
+/** Represents a single table row with its measure values and sparkline data */
+interface RowData {
+    category: string;
+    measureValues: number[];        // aggregated numeric values
+    measureCounts: number[];        // count of non-null values (for averaging)
+    textValues: string[];           // text column values (last non-null per row)
+    sparklineValues: number[];      // time-series values for the sparkline
+}
+
+export class Visual implements IVisual {
+    private target: HTMLElement;
+    private container: HTMLElement;
+    private eventService: IVisualEventService;
+    private formattingSettings: VisualFormattingSettingsModel;
+    private formattingSettingsService: FormattingSettingsService;
+
+    constructor(options: VisualConstructorOptions) {
+        this.formattingSettingsService = new FormattingSettingsService();
+        this.target = options.element;
+        this.eventService = options.host.eventService;
+
+        this.container = document.createElement("div");
+        this.container.className = "sparkline-table-container";
+        this.target.appendChild(this.container);
+    }
+
+    public update(options: VisualUpdateOptions): void {
+        this.eventService.renderingStarted(options);
+
+        try {
+            const dataView: DataView = options.dataViews && options.dataViews[0];
+            this.formattingSettings = this.formattingSettingsService.populateFormattingSettingsModel(
+                VisualFormattingSettingsModel, dataView
+            );
+
+            // Clear previous content
+            this.container.innerHTML = "";
+
+            if (!dataView || !dataView.categorical || !dataView.categorical.categories || !dataView.categorical.values) {
+                this.renderEmpty("Drop a Row Category, Sparkline Category, and Measures");
+                this.eventService.renderingFinished(options);
+                return;
+            }
+
+            const categorical = dataView.categorical;
+            const categories = categorical.categories;
+            const valueColumns = categorical.values;
+
+            // Find the row category and sparkline category columns
+            let rowCatIndex = -1;
+            let sparklineCatIndex = -1;
+
+            for (let i = 0; i < categories.length; i++) {
+                const roles = categories[i].source.roles;
+                if (roles && roles["rowCategory"]) rowCatIndex = i;
+                if (roles && roles["sparklineCategory"]) sparklineCatIndex = i;
+            }
+
+            if (rowCatIndex < 0 || sparklineCatIndex < 0 || valueColumns.length === 0) {
+                this.renderEmpty("Requires Row Category, Sparkline Category, and at least one Measure");
+                this.eventService.renderingFinished(options);
+                return;
+            }
+
+            const rowCatColumn = categories[rowCatIndex];
+            const sparklineCatColumn = categories[sparklineCatIndex];
+            const numRows = rowCatColumn.values.length;
+
+            // Identify numeric measures, text columns, and sparkline value
+            const tableMeasures: powerbi.DataViewValueColumn[] = [];
+            const textCols: powerbi.DataViewValueColumn[] = [];
+            let sparklineMeasure: powerbi.DataViewValueColumn | null = null;
+
+            for (let i = 0; i < valueColumns.length; i++) {
+                const roles = valueColumns[i].source.roles;
+                if (roles && roles["sparklineValue"]) {
+                    sparklineMeasure = valueColumns[i];
+                }
+                if (roles && roles["measures"]) {
+                    tableMeasures.push(valueColumns[i]);
+                }
+                if (roles && roles["textColumns"]) {
+                    textCols.push(valueColumns[i]);
+                }
+            }
+
+            if (tableMeasures.length === 0 && textCols.length === 0) {
+                this.renderEmpty("Drop at least one Measure or Text Column");
+                this.eventService.renderingFinished(options);
+                return;
+            }
+
+            // Fall back: if no dedicated sparkline role, use last numeric measure
+            if (!sparklineMeasure && tableMeasures.length > 0) {
+                sparklineMeasure = tableMeasures[tableMeasures.length - 1];
+            }
+
+            // Detect measure format (percentage, integer, decimal, badge)
+            const measureFormat: string[] = tableMeasures.map(m => {
+                const name = (m.source.displayName || "").toLowerCase();
+                const fmt = m.source.format || "";
+                if (name.indexOf("score") >= 0 || name.indexOf("badge") >= 0) return "badge";
+                if (fmt.indexOf("%") >= 0) return "percent";
+                if (fmt.indexOf(".") >= 0) return "decimal";
+                return "integer";
+            });
+
+            // Column display names: numeric measures + text columns
+            const measureNames = tableMeasures.map(m => m.source.displayName);
+            const textColNames = textCols.map(m => m.source.displayName);
+            const rowCategoryName = rowCatColumn.source.displayName;
+
+            // Group data by row category
+            // Each row in the categorical is a combination of (rowCategory, sparklineCategory)
+            // We need to group by rowCategory and collect sparkline values in order
+            const rowMap = new Map<string, RowData>();
+            const rowOrder: string[] = [];
+
+            for (let i = 0; i < numRows; i++) {
+                const rowCat = String(rowCatColumn.values[i] ?? "");
+
+                if (!rowMap.has(rowCat)) {
+                    rowMap.set(rowCat, {
+                        category: rowCat,
+                        measureValues: new Array(tableMeasures.length).fill(0),
+                        measureCounts: new Array(tableMeasures.length).fill(0),
+                        textValues: new Array(textCols.length).fill(""),
+                        sparklineValues: []
+                    });
+                    rowOrder.push(rowCat);
+                }
+
+                const row = rowMap.get(rowCat)!;
+
+                // Accumulate numeric measures
+                for (let m = 0; m < tableMeasures.length; m++) {
+                    const v = tableMeasures[m].values[i] as number;
+                    if (v != null && !isNaN(v)) {
+                        if (measureFormat[m] === "badge") {
+                            // Badge: take last non-null value (don't sum)
+                            row.measureValues[m] = v;
+                        } else {
+                            row.measureValues[m] += v;
+                        }
+                        row.measureCounts[m]++;
+                    }
+                }
+
+                // Capture text column values (take last non-null per row — most recent)
+                for (let t = 0; t < textCols.length; t++) {
+                    const raw = textCols[t].values[i];
+                    if (raw != null && String(raw).trim() !== "") {
+                        row.textValues[t] = String(raw);
+                    }
+                }
+
+                // Collect sparkline measure value at this time point
+                const sv = sparklineMeasure!.values[i] as number;
+                row.sparklineValues.push(sv != null && !isNaN(sv) ? sv : 0);
+            }
+
+            // Average percentage measures instead of leaving as sum
+            for (const [, row] of rowMap) {
+                for (let m = 0; m < tableMeasures.length; m++) {
+                    if (measureFormat[m] === "percent" && row.measureCounts[m] > 0) {
+                        row.measureValues[m] /= row.measureCounts[m];
+                    }
+                }
+            }
+
+            // Trim leading and trailing zeros from sparkline data to remove dead space
+            for (const [, row] of rowMap) {
+                const vals = row.sparklineValues;
+                let start = 0;
+                let end = vals.length - 1;
+                while (start < end && vals[start] === 0) start++;
+                while (end > start && vals[end] === 0) end--;
+                row.sparklineValues = vals.slice(start, end + 1);
+            }
+
+            // Build rows array preserving insertion order
+            let rows: RowData[] = rowOrder.map(key => rowMap.get(key)!);
+
+            // Apply sorting
+            const tblSettings = this.formattingSettings.tableCardSettings;
+            const spkSettings = this.formattingSettings.sparklineCardSettings;
+            const sortSettings = this.formattingSettings.sortCardSettings;
+
+            const sortCol = sortSettings.sortColumn.value;
+            const sortDir = (sortSettings.sortDirection.value.value as string) === "desc" ? -1 : 1;
+
+            rows.sort((a, b) => {
+                let aVal: string | number;
+                let bVal: string | number;
+
+                if (sortCol === 0) {
+                    // Sort by category name
+                    aVal = a.category.toLowerCase();
+                    bVal = b.category.toLowerCase();
+                    return sortDir * (aVal < bVal ? -1 : aVal > bVal ? 1 : 0);
+                } else {
+                    // Sort by measure value (1-indexed after category column)
+                    const mIdx = sortCol - 1;
+                    if (mIdx < tableMeasures.length) {
+                        aVal = a.measureValues[mIdx] ?? 0;
+                        bVal = b.measureValues[mIdx] ?? 0;
+                    } else {
+                        // Sort by last sparkline value
+                        aVal = a.sparklineValues[a.sparklineValues.length - 1] ?? 0;
+                        bVal = b.sparklineValues[b.sparklineValues.length - 1] ?? 0;
+                    }
+                    return sortDir * ((aVal as number) - (bVal as number));
+                }
+            });
+
+            // Retrieve settings values
+            const headerBg = tblSettings.headerBackground.value.value;
+            const altRowColor = tblSettings.alternateRowColor.value.value;
+            const fontSize = tblSettings.fontSize.value;
+            const rowHeight = tblSettings.rowHeight.value;
+            const showGrid = tblSettings.showGridLines.value;
+
+            const spkWidth = spkSettings.sparklineWidth.value;
+            const spkHeight = spkSettings.sparklineHeight.value;
+            const spkColor = spkSettings.sparklineColor.value.value;
+            const spkType = spkSettings.sparklineType.value.value as string;
+            const showDot = spkSettings.showDot.value;
+            const dotColor = spkSettings.dotColor.value.value;
+            const lineWidth = spkSettings.lineWidth.value;
+
+            // Apply grid class
+            this.container.className = "sparkline-table-container " + (showGrid ? "grid-lines" : "no-grid-lines");
+
+            // Build the table
+            const table = document.createElement("table");
+            table.style.tableLayout = "fixed";
+            table.style.width = "100%";
+
+            // Column group for width distribution
+            const colgroup = document.createElement("colgroup");
+            const cwSettings = this.formattingSettings.columnWidthSettings;
+            const totalDataCols = 1 + tableMeasures.length + textCols.length;
+
+            // User-configured widths (0 = auto)
+            const cfgCatW = cwSettings.categoryWidth.value || 0;
+            const cfgMeasureW = cwSettings.measureWidth.value || 0;
+            const cfgTextW = cwSettings.textWidth.value || 0;
+            const cfgSpkW = cwSettings.sparklineWidth.value || 0;
+
+            // Calculate total assigned width
+            const assignedWidth = cfgCatW
+                + (cfgMeasureW * tableMeasures.length)
+                + (cfgTextW * textCols.length)
+                + cfgSpkW;
+
+            // Auto-distribute: if user set some widths, auto columns split the remainder
+            // If nothing is set, fall back to even distribution with sparkline getting 40%
+            let catW: number, measureW: number, textW: number, spkW: number;
+
+            if (assignedWidth > 0) {
+                // Use configured values; auto (0) columns split the remainder equally
+                const remainder = Math.max(0, 100 - assignedWidth);
+                const autoCount = (cfgCatW ? 0 : 1)
+                    + (cfgMeasureW ? 0 : tableMeasures.length)
+                    + (cfgTextW ? 0 : textCols.length)
+                    + (cfgSpkW ? 0 : 1);
+                const autoShare = autoCount > 0 ? remainder / autoCount : 0;
+
+                catW = cfgCatW || autoShare;
+                measureW = cfgMeasureW || autoShare;
+                textW = cfgTextW || autoShare;
+                spkW = cfgSpkW || autoShare;
+            } else {
+                // Default: data columns share 60%, sparkline gets 40%
+                const defaultColW = Math.min(100, Math.floor(60 / totalDataCols));
+                catW = defaultColW;
+                measureW = defaultColW;
+                textW = defaultColW + 2;
+                spkW = 100 - defaultColW * totalDataCols;
+            }
+
+            // Row category column
+            const catCol = document.createElement("col");
+            catCol.style.width = catW + "%";
+            colgroup.appendChild(catCol);
+
+            // Measure columns
+            for (let m = 0; m < tableMeasures.length; m++) {
+                const col = document.createElement("col");
+                col.style.width = measureW + "%";
+                colgroup.appendChild(col);
+            }
+
+            // Text columns
+            for (let t = 0; t < textCols.length; t++) {
+                const col = document.createElement("col");
+                col.style.width = textW + "%";
+                colgroup.appendChild(col);
+            }
+
+            // Sparkline column
+            const spkCol = document.createElement("col");
+            spkCol.style.width = spkW + "%";
+            colgroup.appendChild(spkCol);
+
+            table.appendChild(colgroup);
+
+            // Header
+            const thead = document.createElement("thead");
+            const headerRow = document.createElement("tr");
+
+            // Build headers with matching alignment classes
+            const addTh = (text: string, className: string) => {
+                const th = document.createElement("th");
+                th.textContent = text;
+                th.className = className;
+                th.style.backgroundColor = headerBg;
+                th.style.fontSize = fontSize + "px";
+                th.style.height = rowHeight + "px";
+                headerRow.appendChild(th);
+            };
+
+            addTh(rowCategoryName, "category-cell");
+            for (let m = 0; m < tableMeasures.length; m++) {
+                addTh(measureNames[m], "measure-cell");
+            }
+            for (let t = 0; t < textCols.length; t++) {
+                addTh(textColNames[t], "category-cell");
+            }
+            addTh("Trend", "sparkline-cell");
+            thead.appendChild(headerRow);
+            table.appendChild(thead);
+
+            // Body
+            const tbody = document.createElement("tbody");
+
+            for (let r = 0; r < rows.length; r++) {
+                const row = rows[r];
+                const tr = document.createElement("tr");
+                tr.style.height = rowHeight + "px";
+
+                // Alternate row color
+                if (r % 2 === 1) {
+                    tr.style.backgroundColor = altRowColor;
+                }
+
+                // Category cell
+                const catTd = document.createElement("td");
+                catTd.className = "category-cell";
+                catTd.textContent = row.category;
+                catTd.style.fontSize = fontSize + "px";
+                catTd.style.overflow = "hidden";
+                catTd.style.textOverflow = "ellipsis";
+                catTd.style.whiteSpace = "nowrap";
+                tr.appendChild(catTd);
+
+                // Numeric measure cells
+                for (let m = 0; m < tableMeasures.length; m++) {
+                    const td = document.createElement("td");
+                    td.className = "measure-cell";
+                    const num = row.measureValues[m];
+                    const fmt = measureFormat[m];
+                    if (fmt === "badge") {
+                        // Map score to badge text and colour
+                        const badgeMap: Record<number, [string, string, string]> = {
+                            1: ["\u2713 On track", "#005a4e", "#e0f5ef"],
+                            2: ["\u26A0 Watch", "#7a5600", "#fef3d6"],
+                            3: ["\u2717 Action needed", "#a30d1e", "#fde8ea"]
+                        };
+                        const badge = badgeMap[Math.round(num)];
+                        if (badge) {
+                            td.textContent = badge[0];
+                            td.style.color = badge[1];
+                            td.style.backgroundColor = badge[2];
+                            td.style.borderRadius = "4px";
+                            td.style.textAlign = "center";
+                            td.style.fontWeight = "600";
+                        } else {
+                            td.textContent = "\u2014";
+                        }
+                    } else if (fmt === "percent") {
+                        td.textContent = num.toFixed(1) + "%";
+                    } else if (fmt === "integer") {
+                        td.textContent = formatValue(num, "auto", 0);
+                    } else {
+                        td.textContent = formatValue(num, "auto", 1);
+                    }
+                    td.style.fontSize = fontSize + "px";
+                    tr.appendChild(td);
+                }
+
+                // Text column cells
+                for (let t = 0; t < textCols.length; t++) {
+                    const td = document.createElement("td");
+                    td.className = "category-cell";
+                    td.textContent = row.textValues[t] || "\u2014";
+                    td.style.fontSize = fontSize + "px";
+                    tr.appendChild(td);
+                }
+
+                // Sparkline cell
+                const spkTd = document.createElement("td");
+                spkTd.className = "sparkline-cell";
+                spkTd.style.overflow = "hidden";
+                spkTd.style.padding = "2px 4px";
+
+                if (row.sparklineValues.length > 1) {
+                    const svg = this.renderSparkline(
+                        row.sparklineValues,
+                        spkWidth, spkHeight,
+                        spkColor, spkType,
+                        lineWidth, showDot, dotColor
+                    );
+                    spkTd.appendChild(svg);
+                } else {
+                    spkTd.textContent = "\u2014";
+                }
+
+                tr.appendChild(spkTd);
+                tbody.appendChild(tr);
+            }
+
+            table.appendChild(tbody);
+            this.container.appendChild(table);
+
+            this.eventService.renderingFinished(options);
+        } catch (e) {
+            this.eventService.renderingFailed(options, String(e));
+        }
+    }
+
+    private renderEmpty(message: string): void {
+        this.container.innerHTML = "";
+        const empty = document.createElement("div");
+        empty.className = "empty-state";
+        empty.textContent = message;
+        this.container.appendChild(empty);
+    }
+
+    private renderSparkline(
+        data: number[],
+        width: number,
+        height: number,
+        color: string,
+        type: string,
+        strokeWidth: number,
+        showDot: boolean,
+        dotColor: string
+    ): SVGSVGElement {
+        const padding = 2;
+        const svgNs = "http://www.w3.org/2000/svg";
+        const svg = document.createElementNS(svgNs, "svg") as SVGSVGElement;
+        svg.setAttribute("width", "100%");
+        svg.setAttribute("height", String(height));
+        svg.setAttribute("viewBox", "0 0 " + width + " " + height);
+        svg.setAttribute("preserveAspectRatio", "none");
+        svg.classList.add("sparkline-svg");
+
+        const minVal = Math.min(...data);
+        const maxVal = Math.max(...data);
+
+        const xScale = scaleLinear()
+            .domain([0, data.length - 1])
+            .range([padding, width - padding]);
+
+        const yScale = scaleLinear()
+            .domain([minVal, maxVal === minVal ? minVal + 1 : maxVal])
+            .range([height - padding, padding]);
+
+        if (type === "bar") {
+            // Bar chart sparkline
+            const barWidth = Math.max(1, (width - padding * 2) / data.length - 1);
+            for (let i = 0; i < data.length; i++) {
+                const rect = document.createElementNS(svgNs, "rect");
+                const x = xScale(i) - barWidth / 2;
+                const y = yScale(data[i]);
+                const barHeight = height - padding - y;
+                rect.setAttribute("x", String(Math.max(padding, x)));
+                rect.setAttribute("y", String(y));
+                rect.setAttribute("width", String(barWidth));
+                rect.setAttribute("height", String(Math.max(0, barHeight)));
+                rect.setAttribute("fill", color);
+                rect.setAttribute("fill-opacity", "0.7");
+                svg.appendChild(rect);
+            }
+        } else {
+            // Line or area
+            if (type === "area") {
+                const areaGen = area<number>()
+                    .x((_d, i) => xScale(i))
+                    .y0(height - padding)
+                    .y1(d => yScale(d))
+                    .curve(curveMonotoneX);
+
+                const areaPath = document.createElementNS(svgNs, "path");
+                areaPath.setAttribute("d", areaGen(data) || "");
+                areaPath.setAttribute("fill", color);
+                areaPath.setAttribute("fill-opacity", "0.15");
+                svg.appendChild(areaPath);
+            }
+
+            const lineGen = line<number>()
+                .x((_d, i) => xScale(i))
+                .y(d => yScale(d))
+                .curve(curveMonotoneX);
+
+            const linePath = document.createElementNS(svgNs, "path");
+            linePath.setAttribute("d", lineGen(data) || "");
+            linePath.setAttribute("fill", "none");
+            linePath.setAttribute("stroke", color);
+            linePath.setAttribute("stroke-width", String(strokeWidth));
+            svg.appendChild(linePath);
+        }
+
+        // Last-point dot
+        if (showDot && data.length > 0) {
+            const lastIdx = data.length - 1;
+            const circle = document.createElementNS(svgNs, "circle");
+            circle.setAttribute("cx", String(xScale(lastIdx)));
+            circle.setAttribute("cy", String(yScale(data[lastIdx])));
+            circle.setAttribute("r", String(Math.max(2, strokeWidth)));
+            circle.setAttribute("fill", dotColor);
+            svg.appendChild(circle);
+        }
+
+        return svg;
+    }
+
+    public getFormattingModel(): powerbi.visuals.FormattingModel {
+        return this.formattingSettingsService.buildFormattingModel(this.formattingSettings);
+    }
+}
