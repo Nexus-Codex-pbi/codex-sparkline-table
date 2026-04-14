@@ -10,6 +10,11 @@ import VisualConstructorOptions = powerbi.extensibility.visual.VisualConstructor
 import VisualUpdateOptions = powerbi.extensibility.visual.VisualUpdateOptions;
 import IVisual = powerbi.extensibility.visual.IVisual;
 import IVisualEventService = powerbi.extensibility.IVisualEventService;
+import ILocalizationManager = powerbi.extensibility.ILocalizationManager;
+import ISelectionManager = powerbi.extensibility.ISelectionManager;
+import ISelectionId = powerbi.visuals.ISelectionId;
+import ITooltipService = powerbi.extensibility.ITooltipService;
+import VisualTooltipDataItem = powerbi.extensibility.VisualTooltipDataItem;
 import DataView = powerbi.DataView;
 
 import { VisualFormattingSettingsModel } from "./settings";
@@ -22,39 +27,81 @@ interface RowData {
     measureCounts: number[];        // count of non-null values (for averaging)
     textValues: string[];           // text column values (last non-null per row)
     sparklineValues: number[];      // time-series values for the sparkline
+    selectionId: ISelectionId | null;
 }
 
 export class Visual implements IVisual {
     private target: HTMLElement;
     private container: HTMLElement;
     private eventService: IVisualEventService;
+    private selectionManager: ISelectionManager;
+    private tooltipService: ITooltipService;
+    private localizationManager: ILocalizationManager;
     private formattingSettings: VisualFormattingSettingsModel;
     private formattingSettingsService: FormattingSettingsService;
+    private host: powerbi.extensibility.visual.IVisualHost;
+    private isHighContrast: boolean = false;
+    private hcForeground: string = "#000000";
+    private hcBackground: string = "#ffffff";
+    private contextMenuHandler: (e: MouseEvent) => void;
 
     constructor(options: VisualConstructorOptions) {
         this.formattingSettingsService = new FormattingSettingsService();
         this.target = options.element;
+        this.host = options.host;
         this.eventService = options.host.eventService;
+        this.selectionManager = options.host.createSelectionManager();
+        this.tooltipService = options.host.tooltipService;
+        this.localizationManager = options.host.createLocalizationManager();
+
+        // High contrast detection
+        const colorPalette = (options.host as any).colorPalette;
+        if (colorPalette) {
+            this.isHighContrast = !!colorPalette.isHighContrast;
+            if (this.isHighContrast) {
+                this.hcForeground = colorPalette.foreground.value;
+                this.hcBackground = colorPalette.background.value;
+            }
+        }
 
         this.container = document.createElement("div");
         this.container.className = "sparkline-table-container";
         this.target.appendChild(this.container);
+
+        // Context menu
+        this.contextMenuHandler = (e: MouseEvent) => {
+            this.selectionManager.showContextMenu({} as powerbi.extensibility.ISelectionId, { x: e.clientX, y: e.clientY });
+            e.preventDefault();
+        };
+        this.target.addEventListener("contextmenu", this.contextMenuHandler);
     }
 
     public update(options: VisualUpdateOptions): void {
         this.eventService.renderingStarted(options);
 
         try {
+            // Refresh high contrast state each update
+            const colorPalette = (this.host as any).colorPalette;
+            if (colorPalette) {
+                this.isHighContrast = !!colorPalette.isHighContrast;
+                if (this.isHighContrast) {
+                    this.hcForeground = colorPalette.foreground.value;
+                    this.hcBackground = colorPalette.background.value;
+                }
+            }
+
             const dataView: DataView = options.dataViews && options.dataViews[0];
             this.formattingSettings = this.formattingSettingsService.populateFormattingSettingsModel(
                 VisualFormattingSettingsModel, dataView
             );
 
             // Clear previous content
-            this.container.innerHTML = "";
+            while (this.container.firstChild) {
+                this.container.removeChild(this.container.firstChild);
+            }
 
             if (!dataView || !dataView.categorical || !dataView.categorical.categories || !dataView.categorical.values) {
-                this.renderEmpty("Drop a Row Category, Sparkline Category, and Measures");
+                this.renderEmpty(this.localizationManager.getDisplayName("Visual_Empty_DropFields") || "Drop a Row Category, Sparkline Category, and Measures");
                 this.eventService.renderingFinished(options);
                 return;
             }
@@ -74,7 +121,7 @@ export class Visual implements IVisual {
             }
 
             if (rowCatIndex < 0 || sparklineCatIndex < 0 || valueColumns.length === 0) {
-                this.renderEmpty("Requires Row Category, Sparkline Category, and at least one Measure");
+                this.renderEmpty(this.localizationManager.getDisplayName("Visual_Empty_RequiresFields") || "Requires Row Category, Sparkline Category, and at least one Measure");
                 this.eventService.renderingFinished(options);
                 return;
             }
@@ -84,8 +131,11 @@ export class Visual implements IVisual {
             const numRows = rowCatColumn.values.length;
 
             // Identify numeric measures, text columns, and sparkline value
+            // Text columns can appear in either categories (GroupingOrMeasure as grouping)
+            // or values (GroupingOrMeasure as measure), so check both arrays.
             const tableMeasures: powerbi.DataViewValueColumn[] = [];
-            const textCols: powerbi.DataViewValueColumn[] = [];
+            const textColsFromValues: powerbi.DataViewValueColumn[] = [];
+            const textColsFromCategories: powerbi.DataViewCategoryColumn[] = [];
             let sparklineMeasure: powerbi.DataViewValueColumn | null = null;
 
             for (let i = 0; i < valueColumns.length; i++) {
@@ -97,12 +147,27 @@ export class Visual implements IVisual {
                     tableMeasures.push(valueColumns[i]);
                 }
                 if (roles && roles["textColumns"]) {
-                    textCols.push(valueColumns[i]);
+                    textColsFromValues.push(valueColumns[i]);
                 }
             }
 
-            if (tableMeasures.length === 0 && textCols.length === 0) {
-                this.renderEmpty("Drop at least one Measure or Text Column");
+            // Check categories array for text columns placed as groupings
+            for (let i = 0; i < categories.length; i++) {
+                const roles = categories[i].source.roles;
+                if (roles && roles["textColumns"]) {
+                    textColsFromCategories.push(categories[i]);
+                }
+            }
+
+            // Unified text column info for header names and value extraction
+            const textColNames: string[] = [
+                ...textColsFromCategories.map(c => c.source.displayName),
+                ...textColsFromValues.map(c => c.source.displayName)
+            ];
+            const textColCount = textColNames.length;
+
+            if (tableMeasures.length === 0 && textColCount === 0) {
+                this.renderEmpty(this.localizationManager.getDisplayName("Visual_Empty_NeedMeasure") || "Drop at least one Measure or Text Column");
                 this.eventService.renderingFinished(options);
                 return;
             }
@@ -122,9 +187,8 @@ export class Visual implements IVisual {
                 return "integer";
             });
 
-            // Column display names: numeric measures + text columns
+            // Column display names
             const measureNames = tableMeasures.map(m => m.source.displayName);
-            const textColNames = textCols.map(m => m.source.displayName);
             const rowCategoryName = rowCatColumn.source.displayName;
 
             // Group data by row category
@@ -137,12 +201,16 @@ export class Visual implements IVisual {
                 const rowCat = String(rowCatColumn.values[i] ?? "");
 
                 if (!rowMap.has(rowCat)) {
+                    const selectionId = this.host.createSelectionIdBuilder()
+                        .withCategory(rowCatColumn, i)
+                        .createSelectionId();
                     rowMap.set(rowCat, {
                         category: rowCat,
                         measureValues: new Array(tableMeasures.length).fill(0),
                         measureCounts: new Array(tableMeasures.length).fill(0),
-                        textValues: new Array(textCols.length).fill(""),
-                        sparklineValues: []
+                        textValues: new Array(textColCount).fill(""),
+                        sparklineValues: [],
+                        selectionId
                     });
                     rowOrder.push(rowCat);
                 }
@@ -164,10 +232,18 @@ export class Visual implements IVisual {
                 }
 
                 // Capture text column values (take last non-null per row — most recent)
-                for (let t = 0; t < textCols.length; t++) {
-                    const raw = textCols[t].values[i];
+                // First from categories (grouping text columns), then from values (measure text columns)
+                let tIdx = 0;
+                for (let t = 0; t < textColsFromCategories.length; t++, tIdx++) {
+                    const raw = textColsFromCategories[t].values[i];
                     if (raw != null && String(raw).trim() !== "") {
-                        row.textValues[t] = String(raw);
+                        row.textValues[tIdx] = String(raw);
+                    }
+                }
+                for (let t = 0; t < textColsFromValues.length; t++, tIdx++) {
+                    const raw = textColsFromValues[t].values[i];
+                    if (raw != null && String(raw).trim() !== "") {
+                        row.textValues[tIdx] = String(raw);
                     }
                 }
 
@@ -230,19 +306,23 @@ export class Visual implements IVisual {
                 }
             });
 
-            // Retrieve settings values
-            const headerBg = tblSettings.headerBackground.value.value;
-            const altRowColor = tblSettings.alternateRowColor.value.value;
+            // Retrieve settings values, applying high contrast overrides
+            const headerBg = this.isHighContrast ? this.hcBackground : tblSettings.headerBackground.value.value;
+            const headerTextColor = this.isHighContrast ? this.hcForeground : tblSettings.headerTextColor.value.value;
+            const rowColor = this.isHighContrast ? this.hcBackground : tblSettings.rowColor.value.value;
+            const altRowColor = this.isHighContrast ? this.hcBackground : tblSettings.alternateRowColor.value.value;
+            const textColor = this.isHighContrast ? this.hcForeground : tblSettings.textColor.value.value;
+            const measureTextColor = this.isHighContrast ? this.hcForeground : tblSettings.measureTextColor.value.value;
             const fontSize = tblSettings.fontSize.value;
             const rowHeight = tblSettings.rowHeight.value;
             const showGrid = tblSettings.showGridLines.value;
 
             const spkWidth = spkSettings.sparklineWidth.value;
             const spkHeight = spkSettings.sparklineHeight.value;
-            const spkColor = spkSettings.sparklineColor.value.value;
+            const spkColor = this.isHighContrast ? this.hcForeground : spkSettings.sparklineColor.value.value;
             const spkType = spkSettings.sparklineType.value.value as string;
             const showDot = spkSettings.showDot.value;
-            const dotColor = spkSettings.dotColor.value.value;
+            const dotColor = this.isHighContrast ? this.hcForeground : spkSettings.dotColor.value.value;
             const lineWidth = spkSettings.lineWidth.value;
 
             // Apply grid class
@@ -256,7 +336,7 @@ export class Visual implements IVisual {
             // Column group for width distribution
             const colgroup = document.createElement("colgroup");
             const cwSettings = this.formattingSettings.columnWidthSettings;
-            const totalDataCols = 1 + tableMeasures.length + textCols.length;
+            const totalDataCols = 1 + tableMeasures.length + textColCount;
 
             // User-configured widths (0 = auto)
             const cfgCatW = cwSettings.categoryWidth.value || 0;
@@ -267,7 +347,7 @@ export class Visual implements IVisual {
             // Calculate total assigned width
             const assignedWidth = cfgCatW
                 + (cfgMeasureW * tableMeasures.length)
-                + (cfgTextW * textCols.length)
+                + (cfgTextW * textColCount)
                 + cfgSpkW;
 
             // Auto-distribute: if user set some widths, auto columns split the remainder
@@ -279,7 +359,7 @@ export class Visual implements IVisual {
                 const remainder = Math.max(0, 100 - assignedWidth);
                 const autoCount = (cfgCatW ? 0 : 1)
                     + (cfgMeasureW ? 0 : tableMeasures.length)
-                    + (cfgTextW ? 0 : textCols.length)
+                    + (cfgTextW ? 0 : textColCount)
                     + (cfgSpkW ? 0 : 1);
                 const autoShare = autoCount > 0 ? remainder / autoCount : 0;
 
@@ -309,7 +389,7 @@ export class Visual implements IVisual {
             }
 
             // Text columns
-            for (let t = 0; t < textCols.length; t++) {
+            for (let t = 0; t < textColCount; t++) {
                 const col = document.createElement("col");
                 col.style.width = textW + "%";
                 colgroup.appendChild(col);
@@ -332,6 +412,7 @@ export class Visual implements IVisual {
                 th.textContent = text;
                 th.className = className;
                 th.style.backgroundColor = headerBg;
+                th.style.color = headerTextColor;
                 th.style.fontSize = fontSize + "px";
                 th.style.height = rowHeight + "px";
                 headerRow.appendChild(th);
@@ -341,10 +422,10 @@ export class Visual implements IVisual {
             for (let m = 0; m < tableMeasures.length; m++) {
                 addTh(measureNames[m], "measure-cell");
             }
-            for (let t = 0; t < textCols.length; t++) {
+            for (let t = 0; t < textColCount; t++) {
                 addTh(textColNames[t], "category-cell");
             }
-            addTh("Trend", "sparkline-cell");
+            addTh(this.localizationManager.getDisplayName("Visual_Header_Trend") || "Trend", "sparkline-cell");
             thead.appendChild(headerRow);
             table.appendChild(thead);
 
@@ -356,16 +437,15 @@ export class Visual implements IVisual {
                 const tr = document.createElement("tr");
                 tr.style.height = rowHeight + "px";
 
-                // Alternate row color
-                if (r % 2 === 1) {
-                    tr.style.backgroundColor = altRowColor;
-                }
+                // Row background color
+                tr.style.backgroundColor = r % 2 === 1 ? altRowColor : rowColor;
 
                 // Category cell
                 const catTd = document.createElement("td");
                 catTd.className = "category-cell";
                 catTd.textContent = row.category;
                 catTd.style.fontSize = fontSize + "px";
+                catTd.style.color = textColor;
                 catTd.style.overflow = "hidden";
                 catTd.style.textOverflow = "ellipsis";
                 catTd.style.whiteSpace = "nowrap";
@@ -403,15 +483,20 @@ export class Visual implements IVisual {
                         td.textContent = formatValue(num, "auto", 1);
                     }
                     td.style.fontSize = fontSize + "px";
+                    // Apply measure text color only for non-badge cells
+                    if (fmt !== "badge") {
+                        td.style.color = measureTextColor;
+                    }
                     tr.appendChild(td);
                 }
 
                 // Text column cells
-                for (let t = 0; t < textCols.length; t++) {
+                for (let t = 0; t < textColCount; t++) {
                     const td = document.createElement("td");
                     td.className = "category-cell";
                     td.textContent = row.textValues[t] || "\u2014";
                     td.style.fontSize = fontSize + "px";
+                    td.style.color = textColor;
                     tr.appendChild(td);
                 }
 
@@ -434,6 +519,44 @@ export class Visual implements IVisual {
                 }
 
                 tr.appendChild(spkTd);
+
+                // Tooltip on row hover
+                tr.style.cursor = "pointer";
+                const rowRef = row;
+                const rowMeasureNames = measureNames;
+                const rowMeasureFormats = measureFormat;
+                tr.addEventListener("mousemove", (e: MouseEvent) => {
+                    const tooltipItems: VisualTooltipDataItem[] = [
+                        { displayName: rowCategoryName, value: rowRef.category }
+                    ];
+                    for (let mi = 0; mi < rowMeasureNames.length; mi++) {
+                        const num = rowRef.measureValues[mi];
+                        const fmt = rowMeasureFormats[mi];
+                        let valStr: string;
+                        if (fmt === "percent") valStr = num.toFixed(1) + "%";
+                        else if (fmt === "integer") valStr = formatValue(num, "auto", 0);
+                        else valStr = formatValue(num, "auto", 1);
+                        tooltipItems.push({ displayName: rowMeasureNames[mi], value: valStr });
+                    }
+                    this.tooltipService.show({
+                        coordinates: [e.clientX, e.clientY],
+                        isTouchEvent: false,
+                        dataItems: tooltipItems,
+                        identities: rowRef.selectionId ? [rowRef.selectionId] : []
+                    });
+                });
+                tr.addEventListener("mouseleave", () => {
+                    this.tooltipService.hide({ isTouchEvent: false, immediately: false });
+                });
+
+                // Cross-filtering on click
+                tr.addEventListener("click", (e: MouseEvent) => {
+                    if (rowRef.selectionId) {
+                        this.selectionManager.select(rowRef.selectionId, e.ctrlKey || e.metaKey);
+                    }
+                    e.stopPropagation();
+                });
+
                 tbody.appendChild(tr);
             }
 
@@ -447,7 +570,9 @@ export class Visual implements IVisual {
     }
 
     private renderEmpty(message: string): void {
-        this.container.innerHTML = "";
+        while (this.container.firstChild) {
+            this.container.removeChild(this.container.firstChild);
+        }
         const empty = document.createElement("div");
         empty.className = "empty-state";
         empty.textContent = message;
@@ -541,6 +666,17 @@ export class Visual implements IVisual {
         }
 
         return svg;
+    }
+
+    public destroy(): void {
+        if (this.contextMenuHandler) {
+            this.target.removeEventListener("contextmenu", this.contextMenuHandler);
+        }
+        while (this.container && this.container.firstChild) {
+            this.container.removeChild(this.container.firstChild);
+        }
+        this.container = null;
+        this.target = null;
     }
 
     public getFormattingModel(): powerbi.visuals.FormattingModel {

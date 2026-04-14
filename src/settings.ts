@@ -1,22 +1,59 @@
 "use strict";
 
+import powerbi from "powerbi-visuals-api";
+
 import { formattingSettings } from "powerbi-visuals-utils-formattingmodel";
 
 import FormattingSettingsCard = formattingSettings.SimpleCard;
 import FormattingSettingsSlice = formattingSettings.Slice;
 import FormattingSettingsModel = formattingSettings.Model;
 
+const ConstantOrRule = powerbi.VisualEnumerationInstanceKinds.ConstantOrRule;
+
 class TableCardSettings extends FormattingSettingsCard {
     headerBackground = new formattingSettings.ColorPicker({
         name: "headerBackground",
         displayName: "Header Background",
-        value: { value: "#f8f6f0" }
+        value: { value: "#f8f6f0" },
+        instanceKind: ConstantOrRule
+    });
+
+    headerTextColor = new formattingSettings.ColorPicker({
+        name: "headerTextColor",
+        displayName: "Header Text Color",
+        value: { value: "#333333" },
+        instanceKind: ConstantOrRule
+    });
+
+    rowColor = new formattingSettings.ColorPicker({
+        name: "rowColor",
+        displayName: "Row Background",
+        description: "Background color for normal (even) rows",
+        value: { value: "#ffffff" },
+        instanceKind: ConstantOrRule
     });
 
     alternateRowColor = new formattingSettings.ColorPicker({
         name: "alternateRowColor",
         displayName: "Alternate Row Color",
-        value: { value: "#faf9f5" }
+        value: { value: "#faf9f5" },
+        instanceKind: ConstantOrRule
+    });
+
+    textColor = new formattingSettings.ColorPicker({
+        name: "textColor",
+        displayName: "Text Color",
+        description: "Color for category and text column cells",
+        value: { value: "#333333" },
+        instanceKind: ConstantOrRule
+    });
+
+    measureTextColor = new formattingSettings.ColorPicker({
+        name: "measureTextColor",
+        displayName: "Measure Text Color",
+        description: "Color for numeric measure cells",
+        value: { value: "#333333" },
+        instanceKind: ConstantOrRule
     });
 
     fontSize = new formattingSettings.NumUpDown({
@@ -41,7 +78,11 @@ class TableCardSettings extends FormattingSettingsCard {
     displayName: string = "Table";
     slices: Array<FormattingSettingsSlice> = [
         this.headerBackground,
+        this.headerTextColor,
+        this.rowColor,
         this.alternateRowColor,
+        this.textColor,
+        this.measureTextColor,
         this.fontSize,
         this.rowHeight,
         this.showGridLines
@@ -64,7 +105,8 @@ class SparklineCardSettings extends FormattingSettingsCard {
     sparklineColor = new formattingSettings.ColorPicker({
         name: "sparklineColor",
         displayName: "Sparkline Color",
-        value: { value: "#130064" }
+        value: { value: "#130064" },
+        instanceKind: ConstantOrRule
     });
 
     sparklineType = new formattingSettings.ItemDropdown({
@@ -87,7 +129,8 @@ class SparklineCardSettings extends FormattingSettingsCard {
     dotColor = new formattingSettings.ColorPicker({
         name: "dotColor",
         displayName: "Dot Color",
-        value: { value: "#e60e22" }
+        value: { value: "#e60e22" },
+        instanceKind: ConstantOrRule
     });
 
     lineWidth = new formattingSettings.NumUpDown({

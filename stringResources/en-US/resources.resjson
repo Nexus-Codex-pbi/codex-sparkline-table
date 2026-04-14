@@ -1,0 +1,8 @@
+{
+    "Visual_Short_Description": "Data table with inline sparkline trend lines for compact trend visualization.",
+    "Visual_Long_Description": "A table visual that displays categories, numeric measures, text columns, and inline sparkline charts showing trends over time.",
+    "Visual_Header_Trend": "Trend",
+    "Visual_Empty_DropFields": "Drop a Row Category, Sparkline Category, and Measures",
+    "Visual_Empty_RequiresFields": "Requires Row Category, Sparkline Category, and at least one Measure",
+    "Visual_Empty_NeedMeasure": "Drop at least one Measure or Text Column"
+}
