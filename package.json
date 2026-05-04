@@ -1,7 +1,7 @@
 {
   "name": "visual",
   "description": "default_template_value",
-  "version": "1.0.0.0",
+  "version": "1.0.0.1",
   "repository": {
     "type": "default_template_value",
     "url": "default_template_value"
@@ -21,7 +21,7 @@
     "d3-scale": "^4.0.2",
     "d3-selection": "^3.0.0",
     "d3-shape": "^3.2.0",
-    "powerbi-visuals-api": "^5.10.0",
+    "powerbi-visuals-api": "5.11.0",
     "powerbi-visuals-utils-formattingmodel": "^6.0.4"
   },
   "devDependencies": {
