@@ -7,15 +7,22 @@
     "version": "1.0.0.0",
     "description": "Data table with inline sparkline trend lines for compact trend visualization.",
     "supportUrl": "https://nexuscodex.nexus/support",
-    "gitHubUrl": ""
+    "gitHubUrl": "https://github.com/Nexus-Codex-pbi/codex-sparkline-table"
   },
   "apiVersion": "5.10.0",
-  "author": { "name": "Nexus Codex", "email": "support@nexuscodex.nexus" },
-  "assets": { "icon": "assets/icon.png" },
+  "author": {
+    "name": "Nexus Codex",
+    "email": "support@nexuscodex.nexus"
+  },
+  "assets": {
+    "icon": "assets/icon.png"
+  },
   "externalJS": null,
   "style": "style/visual.less",
   "capabilities": "capabilities.json",
   "dependencies": null,
-  "stringResources": ["stringResources/en-US/resources.resjson"],
+  "stringResources": [
+    "stringResources/en-US/resources.resjson"
+  ],
   "version": "1.0.0.0"
 }
