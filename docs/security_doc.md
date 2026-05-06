@@ -1,25 +1,46 @@
-# Security Documentation for Codex Sparkline Table
+# Security Document – Codex Sparkline Table
 
-## External Network Access
-The Codex Sparkline Table visual does not make any external network requests or connections. All data processing occurs within the Power BI service environment, and no data is transmitted outside of the Power BI platform.
+## Overview
+This document describes the security characteristics of the **Codex Sparkline Table** Power BI custom visual. It confirms compliance with Microsoft's security and certification requirements.
 
-## Telemetry
-The visual does not collect, store, or transmit any telemetry data. No usage analytics, performance metrics, or user interaction data is gathered by the visual itself.
+## 1. External Network Access
+**The visual does not make any external network calls.**
+- No HTTP/HTTPS requests
+- No WebSockets
+- No external APIs
+- No remote JSON, images, fonts, or scripts
 
-## Data Handling
-All data processing is performed client-side within the Power BI visualization framework. The visual receives data through the standard Power BI data view contract and processes it locally without storing or persisting any information beyond the current session.
+All resources are bundled within the `.pbiviz` package.
 
-## Script Safety
-The visual does not execute any dynamically generated scripts or evaluate JavaScript expressions. All functionality is implemented through statically compiled TypeScript code that adheres to Power BI's security model.
+## 2. Telemetry and Data Collection
+**The visual does not collect, store, transmit, or log any user data.**
+- No telemetry
+- No analytics
+- No usage tracking
+- No cookies or local storage
 
-## Cross-Visual Interaction
-Cross-filtering functionality is implemented using Power BI's standard selection manager APIs. Filters are applied through the official Power BI extensibility framework mechanisms without direct DOM manipulation or unsafe practices.
+## 3. Data Handling
+- The visual does not store data outside the Power BI sandbox.
+- The visual does not persist data to disk.
+- The visual does not send data to external systems.
+- All data stays within the Power BI host environment.
 
-## Dependencies
-The visual uses standard Power BI Visuals API libraries, D3.js visualization libraries, and the powerbi-visuals-utils-formattingmodel package for formatting settings management. These dependencies are bundled with the visual and reviewed by Microsoft as part of the AppSource certification process.
+## 4. Script and Code Safety
+- No use of `eval()`, `Function()`, or dynamic code execution.
+- No injection of external scripts or styles.
+- No DOM escape or manipulation outside the visual container.
 
-## Permissions
-The visual does not declare any special permissions or privileges that would allow access to sensitive system resources.
+## 5. Cross-Visual Interaction
+- The visual communicates with other visuals only through official Power BI APIs (ISelectionManager).
+- No custom messaging or cross-iframe communication.
 
-## Summary
-The Codex Sparkline Table visual complies with Power BI security standards. It operates entirely within the Power BI service sandbox, makes no external network calls, collects no telemetry, executes no dynamic scripts, and handles all data through secure Power BI APIs.
+## 6. Dependencies
+- No external libraries loaded at runtime.
+- All JS/CSS/SVG assets bundled locally.
+- No external fonts.
+
+## 7. Permissions
+The visual does not request elevated permissions.
+
+## 8. Summary
+**Codex Sparkline Table** is sandbox-compliant, contains no external dependencies, performs no external communication, and adheres to all Microsoft Power BI security requirements.

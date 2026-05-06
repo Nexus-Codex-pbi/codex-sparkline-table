@@ -1,22 +1,30 @@
-# Accessibility Statement for Codex Sparkline Table
+# Accessibility Statement – Codex Sparkline Table
 
-## Keyboard Navigation
-The Codex Sparkline Table visual supports full keyboard navigation. Users can tab through interactive table rows, and all interactive elements are focusable and can be activated using standard keyboard controls.
+## Overview
+This document outlines the accessibility compliance of the **Codex Sparkline Table** Power BI custom visual.
 
-## High Contrast Mode
-The visual fully supports Windows High Contrast mode. When enabled, all visual elements automatically adapt to use the system-defined high contrast color scheme, ensuring text and graphical elements remain clearly visible and distinguishable.
+## 1. Keyboard Navigation
+The visual supports keyboard navigation for all interactive elements. Focus indicators are visible and follow standard browser behaviour.
 
-## Screen Reader Support
-The visual provides semantic structure compatible with screen readers. Table headers, row data, and sparkline charts are properly labeled to convey their meaning and relationships to assistive technologies.
+## 2. High Contrast Mode
+The visual supports Power BI high contrast themes. Text, borders, and backgrounds adapt automatically. No hard-coded colours that break accessibility.
 
-## Color Usage
-The visual meets WCAG 2.1 AA contrast requirements for all text and graphical elements. Color is never used as the sole means of conveying information - all data distinctions are also represented through patterns, positioning, or text labels. The visual provides formatting options to customize colors to meet individual accessibility needs.
+## 3. Screen Reader Support
+- ARIA labels are applied to interactive elements where applicable.
+- Non-decorative icons include accessible text.
+- UI controls expose meaningful names.
 
-## Animations
-The visual uses minimal animations that enhance usability without causing issues for users with motion sensitivities. All transitions are smooth and can be disabled through browser or operating system settings. No elements flash or blink at frequencies that could trigger seizures.
+## 4. Color Usage
+- The visual does not rely solely on colour to convey meaning. The table uses text labels and sparklines with tooltips for data representation.
+- No flashing or strobing content.
 
-## Text Scaling
-The visual respects system text scaling preferences. All text elements scale appropriately up to 200% magnification without loss of functionality or content clipping. Layout adjusts responsively to accommodate larger text sizes.
+## 5. Animations
+- Animations are minimal and non-looping.
+- Respects `prefers-reduced-motion` where applicable.
+- No motion that could trigger vestibular issues.
 
-## Summary
-The Codex Sparkline Table visual meets WCAG 2.1 AA accessibility guidelines. It provides inclusive design patterns that work with assistive technologies, supports keyboard navigation, accommodates users with disabilities, and follows established accessibility best practices for Power BI custom visuals.
+## 6. Text Scaling
+The visual respects Power BI text scaling and browser zoom.
+
+## 7. Summary
+**Codex Sparkline Table** meets Microsoft's accessibility requirements and is designed to be usable by all users, including those relying on assistive technologies.
