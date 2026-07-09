@@ -64,6 +64,38 @@
           },
           "displayName": "Header Text Color"
         },
+        "headerFontFamily": {
+          "type": {
+            "formatting": {
+              "fontFamily": true
+            }
+          },
+          "displayName": "Header Font Family"
+        },
+        "headerFontSize": {
+          "type": {
+            "numeric": true
+          },
+          "displayName": "Header Font Size"
+        },
+        "headerBold": {
+          "type": {
+            "bool": true
+          },
+          "displayName": "Header Bold"
+        },
+        "headerItalic": {
+          "type": {
+            "bool": true
+          },
+          "displayName": "Header Italic"
+        },
+        "headerUnderline": {
+          "type": {
+            "bool": true
+          },
+          "displayName": "Header Underline"
+        },
         "rowColor": {
           "type": {
             "fill": {
@@ -100,6 +132,38 @@
           },
           "displayName": "Text Color"
         },
+        "rowLabelFontFamily": {
+          "type": {
+            "formatting": {
+              "fontFamily": true
+            }
+          },
+          "displayName": "Row Label Font Family"
+        },
+        "rowLabelFontSize": {
+          "type": {
+            "numeric": true
+          },
+          "displayName": "Row Label Font Size"
+        },
+        "rowLabelBold": {
+          "type": {
+            "bool": true
+          },
+          "displayName": "Row Label Bold"
+        },
+        "rowLabelItalic": {
+          "type": {
+            "bool": true
+          },
+          "displayName": "Row Label Italic"
+        },
+        "rowLabelUnderline": {
+          "type": {
+            "bool": true
+          },
+          "displayName": "Row Label Underline"
+        },
         "measureTextColor": {
           "type": {
             "fill": {
@@ -109,6 +173,38 @@
             }
           },
           "displayName": "Measure Text Color"
+        },
+        "valueFontFamily": {
+          "type": {
+            "formatting": {
+              "fontFamily": true
+            }
+          },
+          "displayName": "Value Font Family"
+        },
+        "valueFontSize": {
+          "type": {
+            "numeric": true
+          },
+          "displayName": "Value Font Size"
+        },
+        "valueBold": {
+          "type": {
+            "bool": true
+          },
+          "displayName": "Value Bold"
+        },
+        "valueItalic": {
+          "type": {
+            "bool": true
+          },
+          "displayName": "Value Italic"
+        },
+        "valueUnderline": {
+          "type": {
+            "bool": true
+          },
+          "displayName": "Value Underline"
         },
         "fontSize": {
           "type": {
@@ -277,6 +373,75 @@
           "displayName": "Transparency",
           "type": {
             "numeric": true
+          }
+        }
+      }
+    },
+    "titleSettings": {
+      "displayName": "Visual Title",
+      "properties": {
+        "showTitle": {
+          "displayName": "Show Title",
+          "type": {
+            "bool": true
+          }
+        },
+        "titleText": {
+          "displayName": "Title Text",
+          "type": {
+            "text": true
+          }
+        },
+        "titleFontFamily": {
+          "displayName": "Font Family",
+          "type": {
+            "formatting": {
+              "fontFamily": true
+            }
+          }
+        },
+        "titleFontSize": {
+          "displayName": "Font Size",
+          "type": {
+            "formatting": {
+              "fontSize": true
+            }
+          }
+        },
+        "titleBold": {
+          "displayName": "Bold",
+          "type": {
+            "bool": true
+          }
+        },
+        "titleItalic": {
+          "displayName": "Italic",
+          "type": {
+            "bool": true
+          }
+        },
+        "titleUnderline": {
+          "displayName": "Underline",
+          "type": {
+            "bool": true
+          }
+        },
+        "titleAlign": {
+          "displayName": "Alignment",
+          "type": {
+            "formatting": {
+              "alignment": true
+            }
+          }
+        },
+        "titleColor": {
+          "displayName": "Font Color",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
           }
         }
       }

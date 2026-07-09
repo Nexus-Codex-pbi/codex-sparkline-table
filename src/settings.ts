@@ -9,8 +9,20 @@ import FormattingSettingsSlice = formattingSettings.Slice;
 import FormattingSettingsModel = formattingSettings.Model;
 
 import { BackgroundSettings } from "../../_shared/formatting/backgroundSettings";
+import { TitleSettings } from "../../_shared/formatting/titleSettings";
+import { textAlignFor, makeFontControl } from "../../_shared/formatting/textFormatting";
+
+// TitleSettings + alignment helpers live in _shared/formatting/ (D-13,
+// D-14 — frozen v2 standard from Plan 10). Re-exported so visual.ts can
+// import them from "./settings" (stable import path, mirrors pbiKpiCard).
+export { TitleSettings, textAlignFor };
 
 const ConstantOrRule = powerbi.VisualEnumerationInstanceKinds.ConstantOrRule;
+
+// Matches the pre-existing font-family on .sparkline-table-container in
+// style/visual.less so the new font-family defaults render pixel-identical
+// on old saved reports (D-06).
+const FONT_STACK = "Segoe UI, Tahoma, Geneva, Verdana, sans-serif";
 
 class TableCardSettings extends FormattingSettingsCard {
     headerBackground = new formattingSettings.ColorPicker({
@@ -74,6 +86,45 @@ class TableCardSettings extends FormattingSettingsCard {
         instanceKind: ConstantOrRule
     });
 
+    // ─── Per-surface text treatment (TEXT-01) ────────────────────────
+    // Three FontControl composites via the shared makeFontControl helper
+    // (distinct prefixes rowLabel/value/header). Every property is NEW/
+    // additive; the pre-existing shared bare `fontSize` below stays the
+    // suite-wide base size for all cells. Each composite's Font Size
+    // defaults to 0 = "follow the shared Font Size" (the visual's own
+    // established 0-as-auto idiom, cf. columnWidthSettings and
+    // pbiBulletChart's valueFontSize) so an old saved report with a
+    // customised shared Font Size renders pixel-identical (D-06) — a
+    // per-surface size only takes over when explicitly set > 0.
+    // Bold defaults track each surface's pre-existing hardcoded weight
+    // (weightFor idiom): header th weight 600 → Bold true; category-cell
+    // weight 500 → Bold false (rest 500); measure-cell no weight (400) →
+    // Bold false (rest 400). Alignment omitted — column alignment is
+    // layout-determined (category left, measure right, per CSS).
+    private rowLabelFontBundle = makeFontControl("rowLabel", { fontFamily: FONT_STACK, fontSize: 0 });
+    rowLabelFontFamily = this.rowLabelFontBundle.fontFamily;
+    rowLabelFontSize = this.rowLabelFontBundle.fontSize;
+    rowLabelBold = this.rowLabelFontBundle.bold;
+    rowLabelItalic = this.rowLabelFontBundle.italic;
+    rowLabelUnderline = this.rowLabelFontBundle.underline;
+    rowLabelFont = this.rowLabelFontBundle.control;
+
+    private valueFontBundle = makeFontControl("value", { fontFamily: FONT_STACK, fontSize: 0 });
+    valueFontFamily = this.valueFontBundle.fontFamily;
+    valueFontSize = this.valueFontBundle.fontSize;
+    valueBold = this.valueFontBundle.bold;
+    valueItalic = this.valueFontBundle.italic;
+    valueUnderline = this.valueFontBundle.underline;
+    valueFont = this.valueFontBundle.control;
+
+    private headerFontBundle = makeFontControl("header", { fontFamily: FONT_STACK, fontSize: 0, bold: true });
+    headerFontFamily = this.headerFontBundle.fontFamily;
+    headerFontSize = this.headerFontBundle.fontSize;
+    headerBold = this.headerFontBundle.bold;
+    headerItalic = this.headerFontBundle.italic;
+    headerUnderline = this.headerFontBundle.underline;
+    headerFont = this.headerFontBundle.control;
+
     fontSize = new formattingSettings.NumUpDown({
         name: "fontSize",
         displayName: "Font Size",
@@ -97,11 +148,14 @@ class TableCardSettings extends FormattingSettingsCard {
     slices: Array<FormattingSettingsSlice> = [
         this.headerBackground,
         this.headerTextColor,
+        this.headerFont,
         this.rowColor,
         this.alternateRowColor,
         this.rowTransparency,
         this.textColor,
+        this.rowLabelFont,
         this.measureTextColor,
+        this.valueFont,
         this.fontSize,
         this.rowHeight,
         this.showGridLines
@@ -255,6 +309,7 @@ class SortCardSettings extends FormattingSettingsCard {
 }
 
 export class VisualFormattingSettingsModel extends FormattingSettingsModel {
+    titleSettings = new TitleSettings();
     tableCardSettings = new TableCardSettings();
     sparklineCardSettings = new SparklineCardSettings();
     columnWidthSettings = new ColumnWidthSettings();
@@ -281,5 +336,5 @@ export class VisualFormattingSettingsModel extends FormattingSettingsModel {
         this.background.transparency.value = 100;
     }
 
-    cards = [this.tableCardSettings, this.sparklineCardSettings, this.columnWidthSettings, this.sortCardSettings, this.background];
+    cards = [this.titleSettings, this.tableCardSettings, this.sparklineCardSettings, this.columnWidthSettings, this.sortCardSettings, this.background];
 }

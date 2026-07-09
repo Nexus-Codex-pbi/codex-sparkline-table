@@ -20,7 +20,7 @@ import DataView = powerbi.DataView;
 import { dataViewWildcard } from "powerbi-visuals-utils-dataviewutils";
 import { ColorHelper } from "powerbi-visuals-utils-colorutils";
 
-import { VisualFormattingSettingsModel } from "./settings";
+import { VisualFormattingSettingsModel, textAlignFor } from "./settings";
 import { toRgba } from "../../_shared/formatting/colorHelpers";
 import { formatValue, CODEX_TOKENS } from "./utils";
 
@@ -58,6 +58,12 @@ export class Visual implements IVisual {
     // each row's firstRawIndex (RowData).
     private rowCatColumnForFx: powerbi.DataViewCategoryColumn | undefined;
     private sparklineColorHelper: ColorHelper | null = null;
+
+    // State for the Measure Text Colour fx wiring (TEXT-02) — same per-row
+    // firstRawIndex resolution as sparklineColorHelper above (one rendered
+    // row aggregates many raw categorical rows — the Plan 07 aggregated-row
+    // gotcha), applied to the numeric value-column TEXT colour.
+    private measureTextColorHelper: ColorHelper | null = null;
 
     constructor(options: VisualConstructorOptions) {
         this.formattingSettingsService = new FormattingSettingsService();
@@ -366,6 +372,26 @@ export class Visual implements IVisual {
                 spkSettings.sparklineColor.value.value
             );
 
+            // ─── fx wiring — Measure Text Colour (TEXT-02) ──────────────
+            // Same per-row pattern as Sparkline Colour above: dataViewWildcard
+            // selector + altConstantSelector on the first row's selectionId,
+            // resolved per-row at render via ColorHelper.getColorForMeasure
+            // against rowCatColumn.objects[row.firstRawIndex] — the existing
+            // firstRawIndex field (aggregated-row resolution proven in Plan
+            // 07), NOT a loop counter. Applies to the numeric value-column
+            // TEXT only; sparkline line/dot colour logic is untouched.
+            tblSettings.measureTextColor.selector = dataViewWildcard.createDataViewWildcardSelector(
+                dataViewWildcard.DataViewWildcardMatchingOption.InstancesAndTotals
+            );
+            tblSettings.measureTextColor.altConstantSelector = rows[0]?.selectionId
+                ? rows[0].selectionId.getSelector()
+                : undefined;
+            this.measureTextColorHelper = new ColorHelper(
+                this.host.colorPalette,
+                { objectName: "tableSettings", propertyName: "measureTextColor" },
+                tblSettings.measureTextColor.value.value
+            );
+
             // Retrieve settings values, applying high contrast overrides
             const headerBg = this.isHighContrast ? this.hcBackground : tblSettings.headerBackground.value.value;
             const headerTextColor = this.isHighContrast ? this.hcForeground : tblSettings.headerTextColor.value.value;
@@ -385,6 +411,54 @@ export class Visual implements IVisual {
             const showDot = spkSettings.showDot.value;
             const dotColor = this.isHighContrast ? this.hcForeground : spkSettings.dotColor.value.value;
             const lineWidth = spkSettings.lineWidth.value;
+
+            // Per-surface text treatment (TEXT-01) — each composite's Font
+            // Size 0 = "follow the shared Font Size" (D-06: an old report's
+            // customised shared size still governs every cell at defaults);
+            // bold-off falls back to each surface's own pre-existing
+            // hardcoded weight (header 600, category-cell 500, measure 400).
+            const defaultFamily = "Segoe UI, Tahoma, Geneva, Verdana, sans-serif";
+            const rowLabelFamily = tblSettings.rowLabelFontFamily?.value || defaultFamily;
+            const rowLabelSize = (tblSettings.rowLabelFontSize?.value || 0) > 0 ? tblSettings.rowLabelFontSize.value : fontSize;
+            const rowLabelWeight = this.weightFor(tblSettings.rowLabelBold?.value, "500");
+            const rowLabelStyle = tblSettings.rowLabelItalic?.value ? "italic" : "normal";
+            const rowLabelDecoration = tblSettings.rowLabelUnderline?.value ? "underline" : "none";
+
+            const valueFamily = tblSettings.valueFontFamily?.value || defaultFamily;
+            const valueSize = (tblSettings.valueFontSize?.value || 0) > 0 ? tblSettings.valueFontSize.value : fontSize;
+            const valueWeight = this.weightFor(tblSettings.valueBold?.value, "400");
+            const valueStyle = tblSettings.valueItalic?.value ? "italic" : "normal";
+            const valueDecoration = tblSettings.valueUnderline?.value ? "underline" : "none";
+
+            const headerFamily = tblSettings.headerFontFamily?.value || defaultFamily;
+            const headerSize = (tblSettings.headerFontSize?.value || 0) > 0 ? tblSettings.headerFontSize.value : fontSize;
+            const headerWeight = this.weightFor(tblSettings.headerBold?.value, "600");
+            const headerStyle = tblSettings.headerItalic?.value ? "italic" : "normal";
+            const headerDecoration = tblSettings.headerUnderline?.value ? "underline" : "none";
+
+            // ─── Custom in-iframe Title (TITLE-01, shared v2 standard) ──
+            // Render gate: showTitle && titleText (render-nothing default —
+            // showTitle defaults false, D-06). textContent only — no
+            // HTML-string injection (cert + XSS). Appended to the container
+            // ahead of the table, so contextmenu bubbles to the existing
+            // target listener (no new dead zone).
+            const titleFmt = this.formattingSettings.titleSettings;
+            if (titleFmt?.showTitle?.value && titleFmt?.titleText?.value) {
+                const titleEl = document.createElement("div");
+                titleEl.className = "sparkline-table-title";
+                titleEl.textContent = String(titleFmt.titleText.value);
+                titleEl.style.fontFamily = titleFmt.titleFontFamily?.value || "Segoe UI, sans-serif";
+                titleEl.style.fontSize = `${titleFmt.titleFontSize?.value ?? 14}px`;
+                titleEl.style.fontWeight = this.weightFor(titleFmt.titleBold?.value, "400");
+                titleEl.style.fontStyle = titleFmt.titleItalic?.value ? "italic" : "normal";
+                titleEl.style.textDecoration = titleFmt.titleUnderline?.value ? "underline" : "none";
+                titleEl.style.textAlign = textAlignFor(titleFmt.titleAlign?.value as string);
+                titleEl.style.color = this.isHighContrast
+                    ? this.hcForeground
+                    : (titleFmt.titleColor?.value?.value || "#1a1a2e");
+                titleEl.style.padding = "8px 12px 4px";
+                this.container.appendChild(titleEl);
+            }
 
             // Apply grid class
             this.container.className = "sparkline-table-container " + (showGrid ? "grid-lines" : "no-grid-lines");
@@ -474,7 +548,13 @@ export class Visual implements IVisual {
                 th.className = className;
                 th.style.backgroundColor = headerBg;
                 th.style.color = headerTextColor;
-                th.style.fontSize = fontSize + "px";
+                // Header text treatment (TEXT-01) — size 0 follows the
+                // shared Font Size; bold-off rests on pre-existing 600.
+                th.style.fontSize = headerSize + "px";
+                th.style.fontFamily = headerFamily;
+                th.style.fontWeight = headerWeight;
+                th.style.fontStyle = headerStyle;
+                th.style.textDecoration = headerDecoration;
                 th.style.height = rowHeight + "px";
                 headerRow.appendChild(th);
             };
@@ -507,21 +587,45 @@ export class Visual implements IVisual {
                     ? rowBaseColor
                     : toRgba(rowBaseColor, rowTransparencyPct);
 
-                // Category cell
+                // Category cell — row-label text treatment (TEXT-01):
+                // size 0 follows the shared Font Size; bold-off rests on
+                // the pre-existing category-cell weight 500.
                 const catTd = document.createElement("td");
                 catTd.className = "category-cell";
                 catTd.textContent = row.category;
-                catTd.style.fontSize = fontSize + "px";
+                catTd.style.fontSize = rowLabelSize + "px";
+                catTd.style.fontFamily = rowLabelFamily;
+                catTd.style.fontWeight = rowLabelWeight;
+                catTd.style.fontStyle = rowLabelStyle;
+                catTd.style.textDecoration = rowLabelDecoration;
                 catTd.style.color = textColor;
                 catTd.style.overflow = "hidden";
                 catTd.style.textOverflow = "ellipsis";
                 catTd.style.whiteSpace = "nowrap";
                 tr.appendChild(catTd);
 
-                // Numeric measure cells
+                // Per-row Measure Text Colour fx resolution (TEXT-02) —
+                // resolved once per rendered row against this row's own
+                // per-instance object overrides via firstRawIndex (the
+                // aggregated-row gotcha from Plan 07 — never a loop counter).
+                const rowInstanceObjects = this.rowCatColumnForFx?.objects?.[row.firstRawIndex];
+                const resolvedMeasureTextColor = this.isHighContrast
+                    ? this.hcForeground
+                    : (this.measureTextColorHelper?.getColorForMeasure(rowInstanceObjects, "measureTextColor")
+                        ?? measureTextColor);
+
+                // Numeric measure cells — value-column text treatment
+                // (TEXT-01): size 0 follows the shared Font Size; bold-off
+                // rests on the pre-existing default weight 400. Applied
+                // BEFORE the badge branch so badge chrome (its own colour/
+                // background/weight 600) still wins for badge cells.
                 for (let m = 0; m < tableMeasures.length; m++) {
                     const td = document.createElement("td");
                     td.className = "measure-cell";
+                    td.style.fontFamily = valueFamily;
+                    td.style.fontWeight = valueWeight;
+                    td.style.fontStyle = valueStyle;
+                    td.style.textDecoration = valueDecoration;
                     const num = row.measureValues[m];
                     const fmt = measureFormat[m];
                     if (fmt === "badge") {
@@ -549,20 +653,26 @@ export class Visual implements IVisual {
                     } else {
                         td.textContent = formatValue(num, "auto", 1);
                     }
-                    td.style.fontSize = fontSize + "px";
-                    // Apply measure text color only for non-badge cells
+                    td.style.fontSize = valueSize + "px";
+                    // Apply measure text color only for non-badge cells:
+                    // per-row fx-resolved (TEXT-02); badge chrome untouched.
                     if (fmt !== "badge") {
-                        td.style.color = measureTextColor;
+                        td.style.color = resolvedMeasureTextColor;
                     }
                     tr.appendChild(td);
                 }
 
-                // Text column cells
+                // Text column cells: same row-label text treatment as the
+                // category cell (both render via the shared Text Color).
                 for (let t = 0; t < textColCount; t++) {
                     const td = document.createElement("td");
                     td.className = "category-cell";
                     td.textContent = row.textValues[t] || "\u2014";
-                    td.style.fontSize = fontSize + "px";
+                    td.style.fontSize = rowLabelSize + "px";
+                    td.style.fontFamily = rowLabelFamily;
+                    td.style.fontWeight = rowLabelWeight;
+                    td.style.fontStyle = rowLabelStyle;
+                    td.style.textDecoration = rowLabelDecoration;
                     td.style.color = textColor;
                     tr.appendChild(td);
                 }
@@ -645,6 +755,14 @@ export class Visual implements IVisual {
         } catch (e) {
             this.eventService.renderingFailed(options, String(e));
         }
+    }
+
+    /** weightFor(bold, restWeight) idiom (TEXT-01, D-06) — bold on renders
+     *  "700"; bold off falls back to the surface's own pre-existing
+     *  hardcoded weight so old saved reports render pixel-identical at the
+     *  new property defaults. */
+    private weightFor(bold: boolean | undefined, restWeight: string): string {
+        return bold ? "700" : restWeight;
     }
 
     private renderEmpty(message: string): void {

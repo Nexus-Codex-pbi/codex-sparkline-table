@@ -55,3 +55,23 @@
 
 ## 10. Data Model Confirmation
 - [ ] Confirmed this visual uses a categorical dataView (dataView.categorical.categories/values), NOT a true matrix dataRole — fx wiring is fully supported
+## 11. Visual Title (TITLE-01, shared _shared/formatting/ v2)
+- [ ] Visual Title card appears in the format pane (Show Title, Title Text, Font, Alignment, Font Color)
+- [ ] Show Title default OFF — an old saved report renders pixel-identical (no title strip appears)
+- [ ] Show Title ON + empty Title Text renders nothing (render gate is showTitle && titleText)
+- [ ] Title font family/size/bold/italic/underline apply; alignment left/center/right applies
+- [ ] Right-click on the title shows the PBI context menu (title is a child of the container, listener bubbles)
+
+## 12. Per-Surface Text Treatment (TEXT-01)
+- [ ] Header Font (family/size/bold/italic/underline) applies to column header text
+- [ ] Row Label Font applies to the category column AND text columns
+- [ ] Value Font applies to numeric measure cells (badge cells keep their own badge chrome — colour/background/weight)
+- [ ] Each composite's Font Size 0 (default) = follow the shared Font Size — a saved report with a customised shared Font Size renders identically at defaults; setting a per-surface size > 0 takes over for that surface only
+- [ ] Bold OFF renders each surface's own pre-existing weight (header 600, row label 500, value 400); Header Bold defaults ON (pre-existing 600, renders 700 — documented negligible increase)
+- [ ] All defaults untouched → pixel-identical to the pre-upgrade render (D-06)
+
+## 13. Measure Text Colour fx (TEXT-02)
+- [ ] Measure Text Color swatch shows the fx button in the format pane
+- [ ] Setting a rule on Measure Text Color resolves PER-ROW via the row's own category instance (rowCatColumn.objects[firstRawIndex] — the aggregated-row resolution, not a loop counter)
+- [ ] Sparkline line/area/bar and Dot Color rendering are unaffected by a Measure Text Color rule
+- [ ] Badge cells are unaffected (badge chrome keeps its own colour scheme)
