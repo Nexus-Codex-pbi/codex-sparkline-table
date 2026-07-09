@@ -8,6 +8,8 @@ import FormattingSettingsCard = formattingSettings.SimpleCard;
 import FormattingSettingsSlice = formattingSettings.Slice;
 import FormattingSettingsModel = formattingSettings.Model;
 
+import { BackgroundSettings } from "../../_shared/formatting/backgroundSettings";
+
 const ConstantOrRule = powerbi.VisualEnumerationInstanceKinds.ConstantOrRule;
 
 class TableCardSettings extends FormattingSettingsCard {
@@ -38,6 +40,22 @@ class TableCardSettings extends FormattingSettingsCard {
         displayName: "Alternate Row Color",
         value: { value: "#faf9f5" },
         instanceKind: ConstantOrRule
+    });
+
+    // Per-region transparency (D-05) sibling to the row-band colour pair
+    // above — applied uniformly to both rowColor and alternateRowColor at
+    // render (same "row background" region). Rows are ALWAYS painted a
+    // colour today (never "unpainted"), so 0 (opaque) is the correct
+    // no-override default (D-06).
+    rowTransparency = new formattingSettings.Slider({
+        name: "rowTransparency",
+        displayName: "Row Background Transparency",
+        description: "Transparency applied to both row background colours",
+        value: 0,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 100 }
+        }
     });
 
     textColor = new formattingSettings.ColorPicker({
@@ -81,6 +99,7 @@ class TableCardSettings extends FormattingSettingsCard {
         this.headerTextColor,
         this.rowColor,
         this.alternateRowColor,
+        this.rowTransparency,
         this.textColor,
         this.measureTextColor,
         this.fontSize,
@@ -107,6 +126,23 @@ class SparklineCardSettings extends FormattingSettingsCard {
         displayName: "Sparkline Color",
         value: { value: "#130064" },
         instanceKind: ConstantOrRule
+    });
+
+    // Per-region transparency (D-05) sibling to the sparkline colour above
+    // — applied to the line/area/bar stroke+fill colour at render (never
+    // to Dot Color, a distinct last-point highlight left unchanged, out of
+    // scope per D-09/"invent no new colour surfaces"). Sparklines are
+    // ALWAYS painted a colour today (never "unpainted"), so 0 (opaque) is
+    // the correct no-override default (D-06).
+    sparklineTransparency = new formattingSettings.Slider({
+        name: "sparklineTransparency",
+        displayName: "Sparkline Transparency",
+        description: "Transparency applied to the sparkline line/area/bar colour",
+        value: 0,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 100 }
+        }
     });
 
     sparklineType = new formattingSettings.ItemDropdown({
@@ -145,6 +181,7 @@ class SparklineCardSettings extends FormattingSettingsCard {
         this.sparklineWidth,
         this.sparklineHeight,
         this.sparklineColor,
+        this.sparklineTransparency,
         this.sparklineType,
         this.showDot,
         this.dotColor,
@@ -222,6 +259,27 @@ export class VisualFormattingSettingsModel extends FormattingSettingsModel {
     sparklineCardSettings = new SparklineCardSettings();
     columnWidthSettings = new ColumnWidthSettings();
     sortCardSettings = new SortCardSettings();
+    background = new BackgroundSettings();
 
-    cards = [this.tableCardSettings, this.sparklineCardSettings, this.columnWidthSettings, this.sortCardSettings];
+    constructor() {
+        super();
+        // D-06 default-preservation override (per-visual instance only —
+        // _shared/formatting/backgroundSettings.ts itself is untouched,
+        // D-11): pbiSparklineTable's PRE-EXISTING default was "no
+        // background ever painted" — confirmed via direct inspection of
+        // src/visual.ts: `this.container` (the outer render root appended
+        // to options.element) never has a background-color set anywhere;
+        // only row-level (tableCardSettings.rowColor/alternateRowColor)
+        // and sparkline-level (sparklineCardSettings.sparklineColor)
+        // colours are painted, on distinct DOM layers (each <tr>/<svg>),
+        // never the container. The frozen shared Background card's own
+        // default (opaque white, transparency 0) would regress every old
+        // saved report to a suddenly-opaque white container. Overriding
+        // the TRANSPARENCY default to 100 makes toRgba(...) resolve to
+        // alpha 0 regardless of colour — pixel-identical to "nothing
+        // painted".
+        this.background.transparency.value = 100;
+    }
+
+    cards = [this.tableCardSettings, this.sparklineCardSettings, this.columnWidthSettings, this.sortCardSettings, this.background];
 }

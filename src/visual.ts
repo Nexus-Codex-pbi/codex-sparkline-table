@@ -17,7 +17,11 @@ import ITooltipService = powerbi.extensibility.ITooltipService;
 import VisualTooltipDataItem = powerbi.extensibility.VisualTooltipDataItem;
 import DataView = powerbi.DataView;
 
+import { dataViewWildcard } from "powerbi-visuals-utils-dataviewutils";
+import { ColorHelper } from "powerbi-visuals-utils-colorutils";
+
 import { VisualFormattingSettingsModel } from "./settings";
+import { toRgba } from "../../_shared/formatting/colorHelpers";
 import { formatValue, CODEX_TOKENS } from "./utils";
 
 /** Represents a single table row with its measure values and sparkline data */
@@ -28,6 +32,10 @@ interface RowData {
     textValues: string[];           // text column values (last non-null per row)
     sparklineValues: number[];      // time-series values for the sparkline
     selectionId: ISelectionId | null;
+    // Raw dataView row index at first encounter of this row's category —
+    // used to resolve the Sparkline Colour fx rule against this row's own
+    // per-instance object overrides (rowCatColumn.objects[firstRawIndex]).
+    firstRawIndex: number;
 }
 
 export class Visual implements IVisual {
@@ -44,6 +52,12 @@ export class Visual implements IVisual {
     private hcForeground: string = "#000000";
     private hcBackground: string = "#ffffff";
     private contextMenuHandler: (e: MouseEvent) => void;
+
+    // State for the Sparkline Colour fx wiring (TRANS-04) — per-row object
+    // overrides live on the raw DataViewCategoryColumn.objects, indexed by
+    // each row's firstRawIndex (RowData).
+    private rowCatColumnForFx: powerbi.DataViewCategoryColumn | undefined;
+    private sparklineColorHelper: ColorHelper | null = null;
 
     constructor(options: VisualConstructorOptions) {
         this.formattingSettingsService = new FormattingSettingsService();
@@ -94,6 +108,26 @@ export class Visual implements IVisual {
             this.formattingSettings = this.formattingSettingsService.populateFormattingSettingsModel(
                 VisualFormattingSettingsModel, dataView
             );
+
+            // ─── Dedicated background layer (D-05) ─────────────────────
+            // Suite-wide shared Background card (Colour + Transparency,
+            // sourced from _shared/formatting/), painted on `this.container`
+            // — the outer render root appended directly to options.element
+            // — never on the existing row-band colours
+            // (tableCardSettings.rowColor/alternateRowColor) or the
+            // sparkline colour (sparklineCardSettings.sparklineColor,
+            // rendered on each <tr>/<svg>). Applied unconditionally
+            // (before the empty-state early return) so an empty-state
+            // render also honours it. Its transparency default is
+            // overridden to 100 in settings.ts specifically so an OLD
+            // saved report (this property never previously existed)
+            // renders alpha 0 — pixel-identical to "nothing painted" (D-06).
+            const background = this.formattingSettings.background;
+            const outerBgHex = background.backgroundColor.value?.value ?? "#ffffff";
+            const outerBgTransparencyPct = background.transparency.value ?? 100;
+            this.container.style.backgroundColor = this.isHighContrast
+                ? ""
+                : toRgba(outerBgHex, outerBgTransparencyPct);
 
             // Clear previous content
             while (this.container.firstChild) {
@@ -210,7 +244,8 @@ export class Visual implements IVisual {
                         measureCounts: new Array(tableMeasures.length).fill(0),
                         textValues: new Array(textColCount).fill(""),
                         sparklineValues: [],
-                        selectionId
+                        selectionId,
+                        firstRawIndex: i
                     });
                     rowOrder.push(rowCat);
                 }
@@ -306,11 +341,37 @@ export class Visual implements IVisual {
                 }
             });
 
+            // ─── Conditional formatting (fx) wiring — Sparkline Colour (TRANS-04) ──
+            // sparklineCardSettings.sparklineColor already carried a bare
+            // `instanceKind: ConstantOrRule` declaration, but with no
+            // `selector`/`altConstantSelector` wired it was inert (Pitfall
+            // 5). Wired here: a dataViewWildcard selector (so a rule can
+            // match this property's instances/totals) + an
+            // altConstantSelector bound to the first row's selectionId
+            // (the "set for all" swatch edit path), resolved per-row at
+            // render via ColorHelper.getColorForMeasure against
+            // rowCatColumn.objects[row.firstRawIndex] — same per-instance
+            // pattern already proven on pbiProgressBarCard's Fixed Colour /
+            // pbiHeatmapMatrix's Zero/Null Colour.
+            this.rowCatColumnForFx = rowCatColumn;
+            spkSettings.sparklineColor.selector = dataViewWildcard.createDataViewWildcardSelector(
+                dataViewWildcard.DataViewWildcardMatchingOption.InstancesAndTotals
+            );
+            spkSettings.sparklineColor.altConstantSelector = rows[0]?.selectionId
+                ? rows[0].selectionId.getSelector()
+                : undefined;
+            this.sparklineColorHelper = new ColorHelper(
+                this.host.colorPalette,
+                { objectName: "sparklineSettings", propertyName: "sparklineColor" },
+                spkSettings.sparklineColor.value.value
+            );
+
             // Retrieve settings values, applying high contrast overrides
             const headerBg = this.isHighContrast ? this.hcBackground : tblSettings.headerBackground.value.value;
             const headerTextColor = this.isHighContrast ? this.hcForeground : tblSettings.headerTextColor.value.value;
             const rowColor = this.isHighContrast ? this.hcBackground : tblSettings.rowColor.value.value;
             const altRowColor = this.isHighContrast ? this.hcBackground : tblSettings.alternateRowColor.value.value;
+            const rowTransparencyPct = tblSettings.rowTransparency.value ?? 0;
             const textColor = this.isHighContrast ? this.hcForeground : tblSettings.textColor.value.value;
             const measureTextColor = this.isHighContrast ? this.hcForeground : tblSettings.measureTextColor.value.value;
             const fontSize = tblSettings.fontSize.value;
@@ -319,8 +380,8 @@ export class Visual implements IVisual {
 
             const spkWidth = spkSettings.sparklineWidth.value;
             const spkHeight = spkSettings.sparklineHeight.value;
-            const spkColor = this.isHighContrast ? this.hcForeground : spkSettings.sparklineColor.value.value;
             const spkType = spkSettings.sparklineType.value.value as string;
+            const spkTransparencyPct = spkSettings.sparklineTransparency.value ?? 0;
             const showDot = spkSettings.showDot.value;
             const dotColor = this.isHighContrast ? this.hcForeground : spkSettings.dotColor.value.value;
             const lineWidth = spkSettings.lineWidth.value;
@@ -437,8 +498,14 @@ export class Visual implements IVisual {
                 const tr = document.createElement("tr");
                 tr.style.height = rowHeight + "px";
 
-                // Row background color
-                tr.style.backgroundColor = r % 2 === 1 ? altRowColor : rowColor;
+                // Row background color — per-region transparency (D-05)
+                // applied via toRgba(); high-contrast values are already
+                // resolved above (hcBackground) and left untouched (never
+                // re-wrapped) to preserve the existing HC short-circuit.
+                const rowBaseColor = r % 2 === 1 ? altRowColor : rowColor;
+                tr.style.backgroundColor = this.isHighContrast
+                    ? rowBaseColor
+                    : toRgba(rowBaseColor, rowTransparencyPct);
 
                 // Category cell
                 const catTd = document.createElement("td");
@@ -507,10 +574,21 @@ export class Visual implements IVisual {
                 spkTd.style.padding = "2px 4px";
 
                 if (row.sparklineValues.length > 1) {
+                    // Per-row fx resolution (rule-evaluated if set, else
+                    // static swatch) + per-region transparency (D-05),
+                    // applied uniformly to line/area/bar (never Dot Color).
+                    const instanceObjects = this.rowCatColumnForFx?.objects?.[row.firstRawIndex];
+                    const resolvedSpkColorHex = this.isHighContrast
+                        ? this.hcForeground
+                        : (this.sparklineColorHelper?.getColorForMeasure(instanceObjects, "sparklineColor")
+                            ?? spkSettings.sparklineColor.value.value);
+                    const spkColorForRow = this.isHighContrast
+                        ? resolvedSpkColorHex
+                        : toRgba(resolvedSpkColorHex, spkTransparencyPct);
                     const svg = this.renderSparkline(
                         row.sparklineValues,
                         spkWidth, spkHeight,
-                        spkColor, spkType,
+                        spkColorForRow, spkType,
                         lineWidth, showDot, dotColor
                     );
                     spkTd.appendChild(svg);

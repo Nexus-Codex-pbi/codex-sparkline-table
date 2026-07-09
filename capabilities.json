@@ -84,6 +84,12 @@
           },
           "displayName": "Alternate Row Color"
         },
+        "rowTransparency": {
+          "type": {
+            "numeric": true
+          },
+          "displayName": "Row Background Transparency"
+        },
         "textColor": {
           "type": {
             "fill": {
@@ -148,6 +154,12 @@
             }
           },
           "displayName": "Sparkline Color"
+        },
+        "sparklineTransparency": {
+          "type": {
+            "numeric": true
+          },
+          "displayName": "Sparkline Transparency"
         },
         "sparklineType": {
           "type": {
@@ -247,6 +259,27 @@
         }
       },
       "displayName": "Sort Settings"
+    },
+    "background": {
+      "displayName": "Background",
+      "properties": {
+        "backgroundColor": {
+          "displayName": "Background Colour",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "transparency": {
+          "displayName": "Transparency",
+          "type": {
+            "numeric": true
+          }
+        }
+      }
     }
   },
   "dataViewMappings": [
