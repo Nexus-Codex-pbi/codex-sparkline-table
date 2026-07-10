@@ -21,16 +21,16 @@ import { dataViewWildcard } from "powerbi-visuals-utils-dataviewutils";
 import { ColorHelper } from "powerbi-visuals-utils-colorutils";
 
 import { VisualFormattingSettingsModel, textAlignFor } from "./settings";
-import { toRgba } from "../../_shared/formatting/colorHelpers";
+import { toRgba } from "./shared/colorHelpers";
 import { formatValue, CODEX_TOKENS } from "./utils";
 
 // v3 engine (01-18 Task 3) — shared spark grammar (mirrors 01-16
 // pbiKpiSparklineCard) + self-referential band tint (no genuine
 // target/goal data role, mirrors the 01-16 Callback Card precedent) +
 // corner-bracket card signature + row-hover elevation lift.
-import { Theme, band, bandColor, accentToken } from "../../_shared/formatting/bandEngine";
-import { surfaceTokens } from "../../_shared/formatting/designTokens";
-import { makeCornerBrackets, CardSignatureHandle } from "../../_shared/formatting/cardSignature";
+import { Theme, band, bandColor, accentToken } from "./shared/bandEngine";
+import { surfaceTokens } from "./shared/designTokens";
+import { makeCornerBrackets, CardSignatureHandle } from "./shared/cardSignature";
 
 /** Luminance-based theme pick (matches the pbiKpiCard v3 pilot's own
  * 0.55 threshold convention) — this visual's row/background colours are
