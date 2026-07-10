@@ -38,11 +38,13 @@
 
     tbody {
         tr {
+            // v2 board look (01-18 Task 3): the row-hover LIFT is now
+            // JS-driven (theme-aware surface-token tint set per row in
+            // visual.ts), so no static `:hover` rule lives here — an
+            // `!important` background would fight the JS inline style.
+            // This transition timing (within the shared 120-200ms
+            // glow-transition band) is the only thing this rule still owns.
             transition: background-color 0.15s ease;
-
-            &:hover {
-                background-color: rgba(19, 0, 100, 0.06) !important;
-            }
         }
 
         td {

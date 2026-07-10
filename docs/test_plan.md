@@ -75,3 +75,28 @@
 - [ ] Setting a rule on Measure Text Color resolves PER-ROW via the row's own category instance (rowCatColumn.objects[firstRawIndex] — the aggregated-row resolution, not a loop counter)
 - [ ] Sparkline line/area/bar and Dot Color rendering are unaffected by a Measure Text Color rule
 - [ ] Badge cells are unaffected (badge chrome keeps its own colour scheme)
+
+## 14. Shared Spark Grammar (01-18 Task 3 — matches pbiKpiSparklineCard exactly)
+- [ ] Sparkline Type's declared default is now Area (soft fill under the line) — matches pbiKpiSparklineCard's Show Area Fill flip; an old saved report with an explicit Line or Bar selection keeps that value (D-06/D-16)
+- [ ] Min/max whisper ticks (short muted vertical dashes) render at the series' two extreme points on Line/Area types; skipped when the series is flat (min===max) and skipped entirely under high contrast
+- [ ] Bar type sparklines do not render whisker ticks (no line to annotate, matches KPI Sparkline Card's own scope)
+- [ ] Endpoint dot band-tints via the shared v3 band engine by default (Band-Tint Endpoint Dot ON) — colour reflects the row's latest sparkline point vs. the mean of its own prior points
+- [ ] Band-Tint Endpoint Dot OFF restores the flat, per-row Dot Color exactly as it rendered before this plan
+- [ ] High contrast: the dot always renders the flat HC foreground colour regardless of the Band-Tint Endpoint Dot toggle
+
+## 15. Band-Tinted Value Column (01-18 Task 3)
+- [ ] Band-Tint Value Column ON (default): the FIRST measure column's text colour reflects the row's own trend band (success/warning/danger vs. its own baseline), the SAME token driving the endpoint dot
+- [ ] Band-Tint Value Column OFF: the first measure column falls back to the flat/fx-resolved Measure Text Color exactly as before this plan
+- [ ] A per-row Measure Text Color fx RULE always wins over the band tint regardless of the toggle state
+- [ ] Badge-format cells are unaffected (badge chrome keeps its own colour scheme, unchanged from Plan 14)
+- [ ] Secondary measure columns (index > 0) are unaffected by the band tint — only the first/value column changes
+- [ ] High contrast: all measure cells render the flat HC foreground colour, band tint never applies
+
+## 16. Row Hover Lift + Corner-Bracket Signature (01-18 Task 3)
+- [ ] Hovering a row lifts its background one elevation step (a faint, theme-aware muted-surface-token tint) rather than the old static rgba(19,0,100,0.06)
+- [ ] The hover lift transition stays within the shared 120-200ms glow-transition band (existing 0.15s CSS transition)
+- [ ] Mouse-leave restores the row's exact resting background (row/alternate colour + Row Background Transparency), matching pre-hover state
+- [ ] High contrast: no hover lift is applied (rows keep their flat HC background)
+- [ ] A cyan corner-bracket card signature (mirrored top-left/bottom-right) appears on the visual and survives every re-render (attached to the persistent host element, not the per-update-cleared table container)
+- [ ] Corner brackets mute to the neutral grey on the empty/no-fields state
+- [ ] tnum (tabular-nums) is already applied to measure cells (pre-existing, unaffected by this plan)

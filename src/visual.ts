@@ -24,6 +24,26 @@ import { VisualFormattingSettingsModel, textAlignFor } from "./settings";
 import { toRgba } from "../../_shared/formatting/colorHelpers";
 import { formatValue, CODEX_TOKENS } from "./utils";
 
+// v3 engine (01-18 Task 3) — shared spark grammar (mirrors 01-16
+// pbiKpiSparklineCard) + self-referential band tint (no genuine
+// target/goal data role, mirrors the 01-16 Callback Card precedent) +
+// corner-bracket card signature + row-hover elevation lift.
+import { Theme, band, bandColor, accentToken } from "../../_shared/formatting/bandEngine";
+import { surfaceTokens } from "../../_shared/formatting/designTokens";
+import { makeCornerBrackets, CardSignatureHandle } from "../../_shared/formatting/cardSignature";
+
+/** Luminance-based theme pick (matches the pbiKpiCard v3 pilot's own
+ * 0.55 threshold convention) — this visual's row/background colours are
+ * plain ColorPickers (always opaque at their own default), so the
+ * configured Row Color is a reliable theme signal. */
+function themeFor(hex: string): Theme {
+    const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})/i.exec(hex || "");
+    if (!m) return "light";
+    const r = parseInt(m[1], 16), g = parseInt(m[2], 16), b = parseInt(m[3], 16);
+    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    return luminance < 0.5 ? "dark" : "light";
+}
+
 /** Represents a single table row with its measure values and sparkline data */
 interface RowData {
     category: string;
@@ -65,6 +85,12 @@ export class Visual implements IVisual {
     // gotcha), applied to the numeric value-column TEXT colour.
     private measureTextColorHelper: ColorHelper | null = null;
 
+    // Corner-bracket card signature (01-18 Task 3) — attached to
+    // `this.target` (never cleared) rather than `this.container` (which
+    // this visual fully rebuilds every update via the firstChild-removal
+    // loop below), so the bracket elements survive every render.
+    private cornerSignature: CardSignatureHandle | null = null;
+
     constructor(options: VisualConstructorOptions) {
         this.formattingSettingsService = new FormattingSettingsService();
         this.target = options.element;
@@ -87,6 +113,13 @@ export class Visual implements IVisual {
         this.container = document.createElement("div");
         this.container.className = "sparkline-table-container";
         this.target.appendChild(this.container);
+
+        this.target.style.position = "relative";
+        this.cornerSignature = makeCornerBrackets(this.target, "#8f8ab8", {
+            variant: "cornerBracket",
+            mirror: true,
+            muted: true
+        });
 
         // Context menu
         this.contextMenuHandler = (e: MouseEvent) => {
@@ -397,6 +430,13 @@ export class Visual implements IVisual {
             const headerTextColor = this.isHighContrast ? this.hcForeground : tblSettings.headerTextColor.value.value;
             const rowColor = this.isHighContrast ? this.hcBackground : tblSettings.rowColor.value.value;
             const altRowColor = this.isHighContrast ? this.hcBackground : tblSettings.alternateRowColor.value.value;
+
+            // v3 theme pick (01-18 Task 3) — this visual's Row Color is
+            // always opaque at its own default, so it is a reliable signal
+            // for the shared band engine / corner-signature glow budget.
+            const theme: Theme = themeFor(tblSettings.rowColor.value.value);
+            const bandTintValueEnabled = tblSettings.bandTintValue?.value ?? true;
+            const bandTintDotEnabled = spkSettings.bandTintDot?.value ?? true;
             const rowTransparencyPct = tblSettings.rowTransparency.value ?? 0;
             const textColor = this.isHighContrast ? this.hcForeground : tblSettings.textColor.value.value;
             const measureTextColor = this.isHighContrast ? this.hcForeground : tblSettings.measureTextColor.value.value;
@@ -583,9 +623,38 @@ export class Visual implements IVisual {
                 // resolved above (hcBackground) and left untouched (never
                 // re-wrapped) to preserve the existing HC short-circuit.
                 const rowBaseColor = r % 2 === 1 ? altRowColor : rowColor;
-                tr.style.backgroundColor = this.isHighContrast
+                const rowRestingBg = this.isHighContrast
                     ? rowBaseColor
                     : toRgba(rowBaseColor, rowTransparencyPct);
+                tr.style.backgroundColor = rowRestingBg;
+
+                // Row hover lift (01-18 Task 3) — one elevation step via the
+                // shared v3 surface tokens (a faint muted-token tint, same
+                // mechanism suite-wide, never a per-visual hand-rolled hex).
+                // CSS's own `:hover` rule is removed in visual.less so this
+                // JS-driven, theme-aware lift is the single source of truth;
+                // the existing 0.15s CSS transition (within the 120-200ms
+                // glow-transition band) still governs the fade.
+                if (!this.isHighContrast) {
+                    const hoverBg = toRgba(surfaceTokens(theme).muted, 88);
+                    tr.addEventListener("mouseenter", () => { tr.style.backgroundColor = hoverBg; });
+                    tr.addEventListener("mouseleave", () => { tr.style.backgroundColor = rowRestingBg; });
+                }
+
+                // v3 band engine (01-18 Task 3) — self-referential trend
+                // band: this row's latest sparkline point vs. the mean of
+                // its own prior points (a bounded, documented baseline
+                // derivation since this visual has no genuine target/goal
+                // data role, mirroring the 01-16 Callback Card precedent).
+                // Drives BOTH the value-column tint and the endpoint dot so
+                // they always agree (§2 "one colour token per visual").
+                const spkVals = row.sparklineValues;
+                const lastSpkVal = spkVals.length > 0 ? spkVals[spkVals.length - 1] : 0;
+                const priorSpkVals = spkVals.slice(0, -1);
+                const spkBaseline = priorSpkVals.length > 0
+                    ? priorSpkVals.reduce((a, b) => a + b, 0) / priorSpkVals.length
+                    : lastSpkVal;
+                const rowBandColor = bandColor(band(lastSpkVal, spkBaseline), theme);
 
                 // Category cell — row-label text treatment (TEXT-01):
                 // size 0 follows the shared Font Size; bold-off rests on
@@ -613,6 +682,19 @@ export class Visual implements IVisual {
                     ? this.hcForeground
                     : (this.measureTextColorHelper?.getColorForMeasure(rowInstanceObjects, "measureTextColor")
                         ?? measureTextColor);
+
+                // v2 board look (01-18 Task 3) — "band-tinted value column":
+                // an active fx RULE on Measure Text Color (a more deliberate
+                // override than the flat default) always wins; otherwise the
+                // Band-Tint Value Column toggle governs whether the FIRST
+                // measure column (the row's headline "value") resolves via
+                // rowBandColor instead of the flat Measure Text Color.
+                const hasMeasureTextColorOverride = !!(
+                    rowInstanceObjects && (rowInstanceObjects as Record<string, unknown>).tableSettings &&
+                    ((rowInstanceObjects as any).tableSettings.measureTextColor !== undefined)
+                );
+                const useValueBandTint = bandTintValueEnabled && !hasMeasureTextColorOverride
+                    && !this.isHighContrast && spkVals.length > 1;
 
                 // Numeric measure cells — value-column text treatment
                 // (TEXT-01): size 0 follows the shared Font Size; bold-off
@@ -656,8 +738,11 @@ export class Visual implements IVisual {
                     td.style.fontSize = valueSize + "px";
                     // Apply measure text color only for non-badge cells:
                     // per-row fx-resolved (TEXT-02); badge chrome untouched.
+                    // The FIRST measure column additionally honours the
+                    // band-tint toggle above (D-16: fx rule / toggle-off
+                    // still resolve to the flat colour untouched).
                     if (fmt !== "badge") {
-                        td.style.color = resolvedMeasureTextColor;
+                        td.style.color = (m === 0 && useValueBandTint) ? rowBandColor : resolvedMeasureTextColor;
                     }
                     tr.appendChild(td);
                 }
@@ -699,7 +784,13 @@ export class Visual implements IVisual {
                         row.sparklineValues,
                         spkWidth, spkHeight,
                         spkColorForRow, spkType,
-                        lineWidth, showDot, dotColor
+                        lineWidth, showDot, dotColor,
+                        {
+                            theme,
+                            hc: this.isHighContrast,
+                            bandTint: bandTintDotEnabled,
+                            bandColorHex: rowBandColor
+                        }
                     );
                     spkTd.appendChild(svg);
                 } else {
@@ -751,6 +842,18 @@ export class Visual implements IVisual {
             table.appendChild(tbody);
             this.container.appendChild(table);
 
+            // Corner-bracket card signature (01-18 Task 3) — a table has no
+            // single governing value/target, so it carries the suite's
+            // constant brand accent (never a per-row band colour) rather
+            // than the KPI-family visuals' signal-tinted bracket.
+            const cornerColor = this.isHighContrast ? this.hcForeground : accentToken(theme);
+            this.cornerSignature?.update(cornerColor, {
+                variant: "cornerBracket",
+                mirror: true,
+                glowMix: this.isHighContrast ? 0 : (theme === "dark" ? 55 : 0),
+                muted: false
+            });
+
             this.eventService.renderingFinished(options);
         } catch (e) {
             this.eventService.renderingFailed(options, String(e));
@@ -773,6 +876,7 @@ export class Visual implements IVisual {
         empty.className = "empty-state";
         empty.textContent = message;
         this.container.appendChild(empty);
+        this.cornerSignature?.update("#8f8ab8", { variant: "cornerBracket", mirror: true, muted: true });
     }
 
     private renderSparkline(
@@ -783,7 +887,8 @@ export class Visual implements IVisual {
         type: string,
         strokeWidth: number,
         showDot: boolean,
-        dotColor: string
+        dotColor: string,
+        v3: { theme: Theme; hc: boolean; bandTint: boolean; bandColorHex: string }
     ): SVGSVGElement {
         const padding = 2;
         const svgNs = "http://www.w3.org/2000/svg";
@@ -848,16 +953,50 @@ export class Visual implements IVisual {
             linePath.setAttribute("stroke", color);
             linePath.setAttribute("stroke-width", String(strokeWidth));
             svg.appendChild(linePath);
+
+            // v2 board look (01-18 Task 3) — min/max whisper ticks, the
+            // SAME shared spark grammar element as pbiKpiSparklineCard
+            // (Task 3, 01-16): short muted vertical dashes at the series'
+            // two extreme points, skipped when flat (min===max, neither
+            // point meaningfully "extreme") and under high-contrast (a
+            // plain muted-hex tick is colour-only). Bar type has no line
+            // to annotate, so whisker ticks are line/area-only, matching
+            // the KPI Sparkline Card original.
+            if (!v3.hc && minVal !== maxVal) {
+                const whiskerColor = surfaceTokens(v3.theme).muted;
+                const minIdx = data.indexOf(minVal);
+                const maxIdx = data.indexOf(maxVal);
+                [minIdx, maxIdx].forEach((idx) => {
+                    const cx = xScale(idx);
+                    const cy = yScale(data[idx]);
+                    const tick = document.createElementNS(svgNs, "line");
+                    tick.setAttribute("x1", String(cx));
+                    tick.setAttribute("x2", String(cx));
+                    tick.setAttribute("y1", String(cy - 3));
+                    tick.setAttribute("y2", String(cy + 3));
+                    tick.setAttribute("stroke", whiskerColor);
+                    tick.setAttribute("stroke-width", "1");
+                    tick.setAttribute("opacity", "0.6");
+                    svg.appendChild(tick);
+                });
+            }
         }
 
-        // Last-point dot
+        // Last-point dot — band-tinted (01-18 Task 3, mirrors the
+        // pbiKpiSparklineCard endpoint dot) when Band-Tint Endpoint Dot is
+        // on and not high-contrast; otherwise the flat, per-row-fx-
+        // resolved Dot Color exactly as it rendered before this plan
+        // (D-16 — the toggle-off / HC paths are untouched).
         if (showDot && data.length > 0) {
             const lastIdx = data.length - 1;
+            const resolvedDotColor = v3.hc
+                ? dotColor
+                : (v3.bandTint ? v3.bandColorHex : dotColor);
             const circle = document.createElementNS(svgNs, "circle");
             circle.setAttribute("cx", String(xScale(lastIdx)));
             circle.setAttribute("cy", String(yScale(data[lastIdx])));
             circle.setAttribute("r", String(Math.max(2, strokeWidth)));
-            circle.setAttribute("fill", dotColor);
+            circle.setAttribute("fill", resolvedDotColor);
             svg.appendChild(circle);
         }
 
@@ -868,6 +1007,8 @@ export class Visual implements IVisual {
         if (this.contextMenuHandler) {
             this.target.removeEventListener("contextmenu", this.contextMenuHandler);
         }
+        this.cornerSignature?.destroy();
+        this.cornerSignature = null;
         while (this.container && this.container.firstChild) {
             this.container.removeChild(this.container.firstChild);
         }

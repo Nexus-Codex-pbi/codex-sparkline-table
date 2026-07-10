@@ -86,6 +86,23 @@ class TableCardSettings extends FormattingSettingsCard {
         instanceKind: ConstantOrRule
     });
 
+    // v2 board look (01-18 Task 3) — band-tints the FIRST measure column
+    // (the "value column") via the shared v3 band engine, using each
+    // row's own sparkline trend as a self-referential baseline (this
+    // visual has no genuine target/goal data role — mirrors the 01-16
+    // Callback Card precedent). Defaults ON (D-16 new-default look) but
+    // a genuinely optional toggle (mirrors Progress Bar Card's Quantised
+    // Mode) so a report author who has customised Measure Text Color or
+    // set an fx rule can fall back to that flat colour untouched. An
+    // active fx rule on measureTextColor always wins regardless of this
+    // toggle (a rule is a more deliberate override than the flat default).
+    bandTintValue = new formattingSettings.ToggleSwitch({
+        name: "bandTintValue",
+        displayName: "Band-Tint Value Column",
+        description: "Tint the first measure column by this row's trend vs its own baseline",
+        value: true
+    });
+
     // ─── Per-surface text treatment (TEXT-01) ────────────────────────
     // Three FontControl composites via the shared makeFontControl helper
     // (distinct prefixes rowLabel/value/header). Every property is NEW/
@@ -155,6 +172,7 @@ class TableCardSettings extends FormattingSettingsCard {
         this.textColor,
         this.rowLabelFont,
         this.measureTextColor,
+        this.bandTintValue,
         this.valueFont,
         this.fontSize,
         this.rowHeight,
@@ -199,6 +217,12 @@ class SparklineCardSettings extends FormattingSettingsCard {
         }
     });
 
+    // v2 board look (01-18 Task 3) — the shared spark grammar (mirrors
+    // 01-16's pbiKpiSparklineCard Task 3) ships "soft area fill" as the
+    // new default the same way that visual's Show Area Fill flipped
+    // false->true: this declared enum default flips Line->Area. An old
+    // saved report with an explicit Line/Bar selection keeps its value
+    // (D-06/D-16) — only the never-before-set default changes.
     sparklineType = new formattingSettings.ItemDropdown({
         name: "sparklineType",
         displayName: "Sparkline Type",
@@ -207,7 +231,7 @@ class SparklineCardSettings extends FormattingSettingsCard {
             { displayName: "Area", value: "area" },
             { displayName: "Bar", value: "bar" }
         ],
-        value: { displayName: "Line", value: "line" }
+        value: { displayName: "Area", value: "area" }
     });
 
     showDot = new formattingSettings.ToggleSwitch({
@@ -221,6 +245,18 @@ class SparklineCardSettings extends FormattingSettingsCard {
         displayName: "Dot Color",
         value: { value: "#e60e22" },
         instanceKind: ConstantOrRule
+    });
+
+    // Endpoint-dot half of the shared spark grammar: same self-referential
+    // trend-vs-baseline band as bandTintValue above, applied to the
+    // last-point dot (matching pbiKpiSparklineCard's band/direction-tinted
+    // endpoint dot). Defaults ON; toggling off restores the flat Dot
+    // Color exactly as it rendered before this plan (D-16).
+    bandTintDot = new formattingSettings.ToggleSwitch({
+        name: "bandTintDot",
+        displayName: "Band-Tint Endpoint Dot",
+        description: "Tint the last-point dot by this row's trend vs its own baseline",
+        value: true
     });
 
     lineWidth = new formattingSettings.NumUpDown({
@@ -239,6 +275,7 @@ class SparklineCardSettings extends FormattingSettingsCard {
         this.sparklineType,
         this.showDot,
         this.dotColor,
+        this.bandTintDot,
         this.lineWidth
     ];
 }
