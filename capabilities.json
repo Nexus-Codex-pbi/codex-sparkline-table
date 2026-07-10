@@ -1,523 +1,568 @@
 {
-  "dataRoles": [
-    {
-      "displayName": "Row Category",
-      "name": "rowCategory",
-      "kind": "Grouping",
-      "description": "What each row represents (e.g. Beat, BatteryCode)"
-    },
-    {
-      "displayName": "Sparkline Category",
-      "name": "sparklineCategory",
-      "kind": "Grouping",
-      "description": "Time axis for sparklines (e.g. Date)"
-    },
-    {
-      "displayName": "Measures",
-      "name": "measures",
-      "kind": "Measure",
-      "requiredTypes": [
+    "dataRoles": [
         {
-          "numeric": true
-        }
-      ],
-      "description": "Numeric metric columns displayed in the table."
-    },
-    {
-      "displayName": "Text Columns",
-      "name": "textColumns",
-      "kind": "GroupingOrMeasure",
-      "description": "Text columns displayed after numeric measures."
-    },
-    {
-      "displayName": "Sparkline Value",
-      "name": "sparklineValue",
-      "kind": "Measure",
-      "requiredTypes": [
+            "displayName": "Row Category",
+            "name": "rowCategory",
+            "kind": "Grouping",
+            "description": "What each row represents (e.g. Beat, BatteryCode)"
+        },
         {
-          "numeric": true
+            "displayName": "Sparkline Category",
+            "name": "sparklineCategory",
+            "kind": "Grouping",
+            "description": "Time axis for sparklines (e.g. Date)"
+        },
+        {
+            "displayName": "Measures",
+            "name": "measures",
+            "kind": "Measure",
+            "requiredTypes": [
+                {
+                    "numeric": true
+                }
+            ],
+            "description": "Numeric metric columns displayed in the table."
+        },
+        {
+            "displayName": "Text Columns",
+            "name": "textColumns",
+            "kind": "GroupingOrMeasure",
+            "description": "Text columns displayed after numeric measures."
+        },
+        {
+            "displayName": "Sparkline Value",
+            "name": "sparklineValue",
+            "kind": "Measure",
+            "requiredTypes": [
+                {
+                    "numeric": true
+                }
+            ],
+            "description": "Numeric measure for the sparkline trend chart."
         }
-      ],
-      "description": "Numeric measure for the sparkline trend chart."
-    }
-  ],
-  "objects": {
-    "tableSettings": {
-      "properties": {
-        "headerBackground": {
-          "type": {
-            "fill": {
-              "solid": {
-                "color": true
-              }
-            }
-          },
-          "displayName": "Header Background"
-        },
-        "headerTextColor": {
-          "type": {
-            "fill": {
-              "solid": {
-                "color": true
-              }
-            }
-          },
-          "displayName": "Header Text Color"
-        },
-        "headerFontFamily": {
-          "type": {
-            "formatting": {
-              "fontFamily": true
-            }
-          },
-          "displayName": "Header Font Family"
-        },
-        "headerFontSize": {
-          "type": {
-            "numeric": true
-          },
-          "displayName": "Header Font Size"
-        },
-        "headerBold": {
-          "type": {
-            "bool": true
-          },
-          "displayName": "Header Bold"
-        },
-        "headerItalic": {
-          "type": {
-            "bool": true
-          },
-          "displayName": "Header Italic"
-        },
-        "headerUnderline": {
-          "type": {
-            "bool": true
-          },
-          "displayName": "Header Underline"
-        },
-        "rowColor": {
-          "type": {
-            "fill": {
-              "solid": {
-                "color": true
-              }
-            }
-          },
-          "displayName": "Row Color"
-        },
-        "alternateRowColor": {
-          "type": {
-            "fill": {
-              "solid": {
-                "color": true
-              }
-            }
-          },
-          "displayName": "Alternate Row Color"
-        },
-        "rowTransparency": {
-          "type": {
-            "numeric": true
-          },
-          "displayName": "Row Background Transparency"
-        },
-        "textColor": {
-          "type": {
-            "fill": {
-              "solid": {
-                "color": true
-              }
-            }
-          },
-          "displayName": "Text Color"
-        },
-        "rowLabelFontFamily": {
-          "type": {
-            "formatting": {
-              "fontFamily": true
-            }
-          },
-          "displayName": "Row Label Font Family"
-        },
-        "rowLabelFontSize": {
-          "type": {
-            "numeric": true
-          },
-          "displayName": "Row Label Font Size"
-        },
-        "rowLabelBold": {
-          "type": {
-            "bool": true
-          },
-          "displayName": "Row Label Bold"
-        },
-        "rowLabelItalic": {
-          "type": {
-            "bool": true
-          },
-          "displayName": "Row Label Italic"
-        },
-        "rowLabelUnderline": {
-          "type": {
-            "bool": true
-          },
-          "displayName": "Row Label Underline"
-        },
-        "measureTextColor": {
-          "type": {
-            "fill": {
-              "solid": {
-                "color": true
-              }
-            }
-          },
-          "displayName": "Measure Text Color"
-        },
-        "bandTintValue": {
-          "type": {
-            "bool": true
-          },
-          "displayName": "Band-Tint Value Column"
-        },
-        "valueFontFamily": {
-          "type": {
-            "formatting": {
-              "fontFamily": true
-            }
-          },
-          "displayName": "Value Font Family"
-        },
-        "valueFontSize": {
-          "type": {
-            "numeric": true
-          },
-          "displayName": "Value Font Size"
-        },
-        "valueBold": {
-          "type": {
-            "bool": true
-          },
-          "displayName": "Value Bold"
-        },
-        "valueItalic": {
-          "type": {
-            "bool": true
-          },
-          "displayName": "Value Italic"
-        },
-        "valueUnderline": {
-          "type": {
-            "bool": true
-          },
-          "displayName": "Value Underline"
-        },
-        "fontSize": {
-          "type": {
-            "numeric": true
-          },
-          "displayName": "Font Size"
-        },
-        "rowHeight": {
-          "type": {
-            "numeric": true
-          },
-          "displayName": "Row Height"
-        },
-        "showGridLines": {
-          "type": {
-            "bool": true
-          },
-          "displayName": "Show Grid Lines"
-        }
-      },
-      "displayName": "Table Settings"
-    },
-    "sparklineSettings": {
-      "properties": {
-        "sparklineWidth": {
-          "type": {
-            "numeric": true
-          },
-          "displayName": "Sparkline Width"
-        },
-        "sparklineHeight": {
-          "type": {
-            "numeric": true
-          },
-          "displayName": "Sparkline Height"
-        },
-        "sparklineColor": {
-          "type": {
-            "fill": {
-              "solid": {
-                "color": true
-              }
-            }
-          },
-          "displayName": "Sparkline Color"
-        },
-        "sparklineTransparency": {
-          "type": {
-            "numeric": true
-          },
-          "displayName": "Sparkline Transparency"
-        },
-        "sparklineType": {
-          "type": {
-            "enumeration": [
-              {
-                "displayName": "Line",
-                "value": "line"
-              },
-              {
-                "displayName": "Area",
-                "value": "area"
-              },
-              {
-                "displayName": "Bar",
-                "value": "bar"
-              }
-            ]
-          },
-          "displayName": "Sparkline Type"
-        },
-        "showDot": {
-          "type": {
-            "bool": true
-          },
-          "displayName": "Show Dot"
-        },
-        "dotColor": {
-          "type": {
-            "fill": {
-              "solid": {
-                "color": true
-              }
-            }
-          },
-          "displayName": "Dot Color"
-        },
-        "bandTintDot": {
-          "type": {
-            "bool": true
-          },
-          "displayName": "Band-Tint Endpoint Dot"
-        },
-        "lineWidth": {
-          "type": {
-            "numeric": true
-          },
-          "displayName": "Line Width"
-        }
-      },
-      "displayName": "Sparkline Settings"
-    },
-    "columnWidthSettings": {
-      "properties": {
-        "categoryWidth": {
-          "type": {
-            "numeric": true
-          },
-          "displayName": "Category Width"
-        },
-        "measureWidth": {
-          "type": {
-            "numeric": true
-          },
-          "displayName": "Measure Width"
-        },
-        "textWidth": {
-          "type": {
-            "numeric": true
-          },
-          "displayName": "Text Width"
-        },
-        "sparklineWidth": {
-          "type": {
-            "numeric": true
-          },
-          "displayName": "Sparkline Width"
-        }
-      },
-      "displayName": "Column Width Settings"
-    },
-    "sortSettings": {
-      "properties": {
-        "sortColumn": {
-          "type": {
-            "numeric": true
-          },
-          "displayName": "Sort Column"
-        },
-        "sortDirection": {
-          "type": {
-            "enumeration": [
-              {
-                "displayName": "Ascending",
-                "value": "asc"
-              },
-              {
-                "displayName": "Descending",
-                "value": "desc"
-              }
-            ]
-          },
-          "displayName": "Sort Direction"
-        }
-      },
-      "displayName": "Sort Settings"
-    },
-    "background": {
-      "displayName": "Background",
-      "properties": {
-        "backgroundColor": {
-          "displayName": "Background Colour",
-          "type": {
-            "fill": {
-              "solid": {
-                "color": true
-              }
-            }
-          }
-        },
-        "transparency": {
-          "displayName": "Transparency",
-          "type": {
-            "numeric": true
-          }
-        }
-      }
-    },
-    "titleSettings": {
-      "displayName": "Visual Title",
-      "properties": {
-        "showTitle": {
-          "displayName": "Show Title",
-          "type": {
-            "bool": true
-          }
-        },
-        "titleText": {
-          "displayName": "Title Text",
-          "type": {
-            "text": true
-          }
-        },
-        "titleFontFamily": {
-          "displayName": "Font Family",
-          "type": {
-            "formatting": {
-              "fontFamily": true
-            }
-          }
-        },
-        "titleFontSize": {
-          "displayName": "Font Size",
-          "type": {
-            "formatting": {
-              "fontSize": true
-            }
-          }
-        },
-        "titleBold": {
-          "displayName": "Bold",
-          "type": {
-            "bool": true
-          }
-        },
-        "titleItalic": {
-          "displayName": "Italic",
-          "type": {
-            "bool": true
-          }
-        },
-        "titleUnderline": {
-          "displayName": "Underline",
-          "type": {
-            "bool": true
-          }
-        },
-        "titleAlign": {
-          "displayName": "Alignment",
-          "type": {
-            "formatting": {
-              "alignment": true
-            }
-          }
-        },
-        "titleColor": {
-          "displayName": "Font Color",
-          "type": {
-            "fill": {
-              "solid": {
-                "color": true
-              }
-            }
-          }
-        }
-      }
-    }
-  },
-  "dataViewMappings": [
-    {
-      "categorical": {
-        "categories": {
-          "select": [
-            {
-              "for": {
-                "in": "rowCategory"
-              }
+    ],
+    "objects": {
+        "tableSettings": {
+            "properties": {
+                "headerBackground": {
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    },
+                    "displayName": "Header Background"
+                },
+                "headerTextColor": {
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    },
+                    "displayName": "Header Text Color"
+                },
+                "headerFontFamily": {
+                    "type": {
+                        "formatting": {
+                            "fontFamily": true
+                        }
+                    },
+                    "displayName": "Header Font Family"
+                },
+                "headerFontSize": {
+                    "type": {
+                        "numeric": true
+                    },
+                    "displayName": "Header Font Size"
+                },
+                "headerBold": {
+                    "type": {
+                        "bool": true
+                    },
+                    "displayName": "Header Bold"
+                },
+                "headerItalic": {
+                    "type": {
+                        "bool": true
+                    },
+                    "displayName": "Header Italic"
+                },
+                "headerUnderline": {
+                    "type": {
+                        "bool": true
+                    },
+                    "displayName": "Header Underline"
+                },
+                "rowColor": {
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    },
+                    "displayName": "Row Color"
+                },
+                "alternateRowColor": {
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    },
+                    "displayName": "Alternate Row Color"
+                },
+                "rowTransparency": {
+                    "type": {
+                        "numeric": true
+                    },
+                    "displayName": "Row Background Transparency"
+                },
+                "textColor": {
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    },
+                    "displayName": "Text Color"
+                },
+                "rowLabelFontFamily": {
+                    "type": {
+                        "formatting": {
+                            "fontFamily": true
+                        }
+                    },
+                    "displayName": "Row Label Font Family"
+                },
+                "rowLabelFontSize": {
+                    "type": {
+                        "numeric": true
+                    },
+                    "displayName": "Row Label Font Size"
+                },
+                "rowLabelBold": {
+                    "type": {
+                        "bool": true
+                    },
+                    "displayName": "Row Label Bold"
+                },
+                "rowLabelItalic": {
+                    "type": {
+                        "bool": true
+                    },
+                    "displayName": "Row Label Italic"
+                },
+                "rowLabelUnderline": {
+                    "type": {
+                        "bool": true
+                    },
+                    "displayName": "Row Label Underline"
+                },
+                "measureTextColor": {
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    },
+                    "displayName": "Measure Text Color"
+                },
+                "bandTintValue": {
+                    "type": {
+                        "bool": true
+                    },
+                    "displayName": "Band-Tint Value Column"
+                },
+                "valueFontFamily": {
+                    "type": {
+                        "formatting": {
+                            "fontFamily": true
+                        }
+                    },
+                    "displayName": "Value Font Family"
+                },
+                "valueFontSize": {
+                    "type": {
+                        "numeric": true
+                    },
+                    "displayName": "Value Font Size"
+                },
+                "valueBold": {
+                    "type": {
+                        "bool": true
+                    },
+                    "displayName": "Value Bold"
+                },
+                "valueItalic": {
+                    "type": {
+                        "bool": true
+                    },
+                    "displayName": "Value Italic"
+                },
+                "valueUnderline": {
+                    "type": {
+                        "bool": true
+                    },
+                    "displayName": "Value Underline"
+                },
+                "fontSize": {
+                    "type": {
+                        "numeric": true
+                    },
+                    "displayName": "Font Size"
+                },
+                "rowHeight": {
+                    "type": {
+                        "numeric": true
+                    },
+                    "displayName": "Row Height"
+                },
+                "showGridLines": {
+                    "type": {
+                        "bool": true
+                    },
+                    "displayName": "Show Grid Lines"
+                }
             },
-            {
-              "for": {
-                "in": "sparklineCategory"
-              }
-            },
-            {
-              "for": {
-                "in": "textColumns"
-              }
-            }
-          ],
-          "dataReductionAlgorithm": {
-            "top": {
-              "count": 30000
-            }
-          }
+            "displayName": "Table Settings"
         },
-        "values": {
-          "select": [
-            {
-              "bind": {
-                "to": "measures"
-              }
+        "sparklineSettings": {
+            "properties": {
+                "sparklineWidth": {
+                    "type": {
+                        "numeric": true
+                    },
+                    "displayName": "Sparkline Width"
+                },
+                "sparklineHeight": {
+                    "type": {
+                        "numeric": true
+                    },
+                    "displayName": "Sparkline Height"
+                },
+                "sparklineColor": {
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    },
+                    "displayName": "Sparkline Color"
+                },
+                "sparklineTransparency": {
+                    "type": {
+                        "numeric": true
+                    },
+                    "displayName": "Sparkline Transparency"
+                },
+                "sparklineType": {
+                    "type": {
+                        "enumeration": [
+                            {
+                                "displayName": "Line",
+                                "value": "line"
+                            },
+                            {
+                                "displayName": "Area",
+                                "value": "area"
+                            },
+                            {
+                                "displayName": "Bar",
+                                "value": "bar"
+                            }
+                        ]
+                    },
+                    "displayName": "Sparkline Type"
+                },
+                "showDot": {
+                    "type": {
+                        "bool": true
+                    },
+                    "displayName": "Show Dot"
+                },
+                "dotColor": {
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    },
+                    "displayName": "Dot Color"
+                },
+                "bandTintDot": {
+                    "type": {
+                        "bool": true
+                    },
+                    "displayName": "Band-Tint Endpoint Dot"
+                },
+                "lineWidth": {
+                    "type": {
+                        "numeric": true
+                    },
+                    "displayName": "Line Width"
+                }
             },
-            {
-              "bind": {
-                "to": "textColumns"
-              }
+            "displayName": "Sparkline Settings"
+        },
+        "columnWidthSettings": {
+            "properties": {
+                "categoryWidth": {
+                    "type": {
+                        "numeric": true
+                    },
+                    "displayName": "Category Width"
+                },
+                "measureWidth": {
+                    "type": {
+                        "numeric": true
+                    },
+                    "displayName": "Measure Width"
+                },
+                "textWidth": {
+                    "type": {
+                        "numeric": true
+                    },
+                    "displayName": "Text Width"
+                },
+                "sparklineWidth": {
+                    "type": {
+                        "numeric": true
+                    },
+                    "displayName": "Sparkline Width"
+                }
             },
-            {
-              "bind": {
-                "to": "sparklineValue"
-              }
+            "displayName": "Column Width Settings"
+        },
+        "sortSettings": {
+            "properties": {
+                "sortColumn": {
+                    "type": {
+                        "numeric": true
+                    },
+                    "displayName": "Sort Column"
+                },
+                "sortDirection": {
+                    "type": {
+                        "enumeration": [
+                            {
+                                "displayName": "Ascending",
+                                "value": "asc"
+                            },
+                            {
+                                "displayName": "Descending",
+                                "value": "desc"
+                            }
+                        ]
+                    },
+                    "displayName": "Sort Direction"
+                }
+            },
+            "displayName": "Sort Settings"
+        },
+        "background": {
+            "displayName": "Background",
+            "properties": {
+                "backgroundColor": {
+                    "displayName": "Background Colour",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "transparency": {
+                    "displayName": "Transparency",
+                    "type": {
+                        "numeric": true
+                    }
+                }
             }
-          ]
+        },
+        "titleSettings": {
+            "displayName": "Visual Title",
+            "properties": {
+                "showTitle": {
+                    "displayName": "Show Title",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "titleText": {
+                    "displayName": "Title Text",
+                    "type": {
+                        "text": true
+                    }
+                },
+                "titleFontFamily": {
+                    "displayName": "Font Family",
+                    "type": {
+                        "formatting": {
+                            "fontFamily": true
+                        }
+                    }
+                },
+                "titleFontSize": {
+                    "displayName": "Font Size",
+                    "type": {
+                        "formatting": {
+                            "fontSize": true
+                        }
+                    }
+                },
+                "titleBold": {
+                    "displayName": "Bold",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "titleItalic": {
+                    "displayName": "Italic",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "titleUnderline": {
+                    "displayName": "Underline",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "titleAlign": {
+                    "displayName": "Alignment",
+                    "type": {
+                        "formatting": {
+                            "alignment": true
+                        }
+                    }
+                },
+                "titleColor": {
+                    "displayName": "Font Color",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "cardSignature": {
+            "properties": {
+                "show": {
+                    "displayName": "Show",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "style": {
+                    "displayName": "Style",
+                    "type": {
+                        "enumeration": [
+                            {
+                                "displayName": "Corner Brackets",
+                                "value": "cornerBracket"
+                            },
+                            {
+                                "displayName": "Accent Bar",
+                                "value": "flatBar"
+                            },
+                            {
+                                "displayName": "Glass Tube",
+                                "value": "glassTube"
+                            }
+                        ]
+                    }
+                },
+                "autoColor": {
+                    "displayName": "Auto Color",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "color": {
+                    "displayName": "Custom Color",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                }
+            }
         }
-      }
+    },
+    "dataViewMappings": [
+        {
+            "categorical": {
+                "categories": {
+                    "select": [
+                        {
+                            "for": {
+                                "in": "rowCategory"
+                            }
+                        },
+                        {
+                            "for": {
+                                "in": "sparklineCategory"
+                            }
+                        },
+                        {
+                            "for": {
+                                "in": "textColumns"
+                            }
+                        }
+                    ],
+                    "dataReductionAlgorithm": {
+                        "top": {
+                            "count": 30000
+                        }
+                    }
+                },
+                "values": {
+                    "select": [
+                        {
+                            "bind": {
+                                "to": "measures"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "textColumns"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "sparklineValue"
+                            }
+                        }
+                    ]
+                }
+            }
+        }
+    ],
+    "privileges": [],
+    "supportsHighlight": true,
+    "supportsKeyboardFocus": true,
+    "supportsLandingPage": true,
+    "supportsEmptyDataView": true,
+    "supportsMultiVisualSelection": true,
+    "tooltips": {
+        "supportedTypes": {
+            "default": true,
+            "canvas": true
+        }
     }
-  ],
-  "privileges": [],
-  "supportsHighlight": true,
-  "supportsKeyboardFocus": true,
-  "supportsLandingPage": true,
-  "supportsEmptyDataView": true,
-  "supportsMultiVisualSelection": true,
-  "tooltips": {
-    "supportedTypes": {
-      "default": true,
-      "canvas": true
-    }
-  }
 }

@@ -31,6 +31,7 @@ import { formatValue, CODEX_TOKENS } from "./utils";
 import { Theme, band, bandColor, accentToken } from "./shared/bandEngine";
 import { surfaceTokens } from "./shared/designTokens";
 import { makeCornerBrackets, CardSignatureHandle } from "./shared/cardSignature";
+import { applyCardSignature } from "./shared/cardSignatureSettings";
 
 /** Luminance-based theme pick (matches the pbiKpiCard v3 pilot's own
  * 0.55 threshold convention) — this visual's row/background colours are
@@ -396,9 +397,7 @@ export class Visual implements IVisual {
             spkSettings.sparklineColor.selector = dataViewWildcard.createDataViewWildcardSelector(
                 dataViewWildcard.DataViewWildcardMatchingOption.InstancesAndTotals
             );
-            spkSettings.sparklineColor.altConstantSelector = rows[0]?.selectionId
-                ? rows[0].selectionId.getSelector()
-                : undefined;
+            spkSettings.sparklineColor.altConstantSelector = undefined; // card-level constant persistence: swatch edits apply to ALL instances + round-trip into the pane (first-instance binding persisted a row-0-only override); fx rules stay per-instance via the wildcard selector;
             this.sparklineColorHelper = new ColorHelper(
                 this.host.colorPalette,
                 { objectName: "sparklineSettings", propertyName: "sparklineColor" },
@@ -416,9 +415,7 @@ export class Visual implements IVisual {
             tblSettings.measureTextColor.selector = dataViewWildcard.createDataViewWildcardSelector(
                 dataViewWildcard.DataViewWildcardMatchingOption.InstancesAndTotals
             );
-            tblSettings.measureTextColor.altConstantSelector = rows[0]?.selectionId
-                ? rows[0].selectionId.getSelector()
-                : undefined;
+            tblSettings.measureTextColor.altConstantSelector = undefined; // card-level constant persistence: swatch edits apply to ALL instances + round-trip into the pane (first-instance binding persisted a row-0-only override); fx rules stay per-instance via the wildcard selector;
             this.measureTextColorHelper = new ColorHelper(
                 this.host.colorPalette,
                 { objectName: "tableSettings", propertyName: "measureTextColor" },
@@ -846,9 +843,10 @@ export class Visual implements IVisual {
             // single governing value/target, so it carries the suite's
             // constant brand accent (never a per-row band colour) rather
             // than the KPI-family visuals' signal-tinted bracket.
-            const cornerColor = this.isHighContrast ? this.hcForeground : accentToken(theme);
-            this.cornerSignature?.update(cornerColor, {
-                variant: "cornerBracket",
+            applyCardSignature(this.cornerSignature, this.formattingSettings.cardSignature, {
+                autoHex: accentToken(theme),
+                hcActive: this.isHighContrast,
+                hcColor: this.hcForeground,
                 mirror: true,
                 glowMix: this.isHighContrast ? 0 : (theme === "dark" ? 55 : 0),
                 muted: false
@@ -876,7 +874,7 @@ export class Visual implements IVisual {
         empty.className = "empty-state";
         empty.textContent = message;
         this.container.appendChild(empty);
-        this.cornerSignature?.update("#8f8ab8", { variant: "cornerBracket", mirror: true, muted: true });
+        applyCardSignature(this.cornerSignature, this.formattingSettings?.cardSignature, { autoHex: "#8f8ab8", mirror: true, muted: true });
     }
 
     private renderSparkline(
