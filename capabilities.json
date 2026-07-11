@@ -506,6 +506,12 @@
                     "type": {
                         "numeric": true
                     }
+                },
+                "mirrorCorners": {
+                    "displayName": "Both Corners",
+                    "type": {
+                        "bool": true
+                    }
                 }
             }
         }
