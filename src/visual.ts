@@ -531,23 +531,39 @@ export class Visual implements IVisual {
             table.style.tableLayout = "fixed";
             table.style.width = "100%";
 
-            // Content-auto column widths (Neil 2026-07-15 — the manual width
-            // control is gone). With table-layout:auto every column sizes to
-            // its own content (label / value / pill); the SPARKLINE column is
-            // the sole width:100% col, so it absorbs ALL the remaining width
-            // and runs as wide as the card allows. No fixed percentages, no
-            // drag control needed — the trend always fills the card.
+            // Auto column widths (Neil 2026-07-15 — the manual width control is
+            // gone). Fixed-layout percentages, computed (not user-set): the
+            // TREND gets the lion's share so it runs wide, values get a legible
+            // share, Δ a slim slot. Sums to 100 so nothing runs off the card,
+            // and it degrades sanely as more value columns are bound.
+            const valueColCount = tableMeasures.length + textColCount;
+            const catW = 16;
+            const deltaW = 10;
+            const perValue = valueColCount > 0 ? Math.min(20, Math.max(13, 44 / valueColCount)) : 0;
+            const spkW = Math.max(20, 100 - catW - deltaW - perValue * valueColCount);
+
             const colgroup = document.createElement("colgroup");
             const catCol = document.createElement("col");
+            catCol.style.width = catW + "%";
             colgroup.appendChild(catCol);
-            for (let m = 0; m < tableMeasures.length; m++) colgroup.appendChild(document.createElement("col"));
-            for (let t = 0; t < textColCount; t++) colgroup.appendChild(document.createElement("col"));
-            // Sparkline column — 2nd (right after category), width:100% flex.
+            for (let m = 0; m < tableMeasures.length; m++) {
+                const col = document.createElement("col");
+                col.style.width = perValue + "%";
+                colgroup.appendChild(col);
+            }
+            for (let t = 0; t < textColCount; t++) {
+                const col = document.createElement("col");
+                col.style.width = perValue + "%";
+                colgroup.appendChild(col);
+            }
+            // Sparkline column — 2nd (right after category), gets the wide share.
             const spkCol = document.createElement("col");
-            spkCol.style.width = "100%";
+            spkCol.style.width = spkW + "%";
             colgroup.insertBefore(spkCol, catCol.nextSibling);
-            // Δ pill column (last) — content-sized.
-            colgroup.appendChild(document.createElement("col"));
+            // Δ pill column (last).
+            const deltaCol = document.createElement("col");
+            deltaCol.style.width = deltaW + "%";
+            colgroup.appendChild(deltaCol);
             table.appendChild(colgroup);
 
             // Header
@@ -803,10 +819,15 @@ export class Visual implements IVisual {
                     // fill follow the ROW's signal colour (green rising / amber
                     // flat / red falling), matching the scorecard board instead
                     // of a flat cyan. A user-set colour / fx rule is honoured.
+                    // Band-tint on BOTH themes (the earlier adapt() only swapped
+                    // on dark, so light-theme sparks stayed navy — Neil 2026-07-15):
+                    // an untouched default spark colour follows the row signal;
+                    // a user-set colour / fx rule is honoured verbatim.
+                    const rawSpk = this.sparklineColorHelper?.getColorForMeasure(instanceObjects, "sparklineColor")
+                        ?? spkSettings.sparklineColor.value.value;
                     const resolvedSpkColorHex = this.isHighContrast
                         ? this.hcForeground
-                        : adapt(this.sparklineColorHelper?.getColorForMeasure(instanceObjects, "sparklineColor")
-                            ?? spkSettings.sparklineColor.value.value, "#130064", rowBandColor);
+                        : (rawSpk === "#130064" ? rowBandColor : rawSpk);
                     const spkColorForRow = this.isHighContrast
                         ? resolvedSpkColorHex
                         : toRgba(resolvedSpkColorHex, spkTransparencyPct);

@@ -15,12 +15,10 @@
     table {
         width: 100%;
         border-collapse: collapse;
-        // auto = every column sizes to its content; the sparkline col carries
-        // width:100% so it absorbs the remaining width (Neil 2026-07-15). The
-        // header crossover that pushed us to `fixed` earlier is a MANY-column
-        // problem; the lean 4-column scorecard sizes cleanly on auto, and the
-        // th ellipsis below is the backstop.
-        table-layout: auto;
+        // fixed = the computed colgroup percentages are ENFORCED (Trend wide,
+        // values legible, Δ slim, sums to 100). Auto layout collapsed columns
+        // unpredictably; fixed + the th ellipsis keeps every column in place.
+        table-layout: fixed;
     }
 
     thead {
