@@ -273,44 +273,9 @@ class SparklineCardSettings extends FormattingSettingsCard {
     ];
 }
 
-class ColumnWidthSettings extends FormattingSettingsCard {
-    categoryWidth = new formattingSettings.NumUpDown({
-        name: "categoryWidth",
-        displayName: "Category Column %",
-        description: "Width percentage for the row category column (0 = auto)",
-        value: 0
-    });
-
-    measureWidth = new formattingSettings.NumUpDown({
-        name: "measureWidth",
-        displayName: "Measure Column %",
-        description: "Width percentage for each measure column (0 = auto)",
-        value: 0
-    });
-
-    textWidth = new formattingSettings.NumUpDown({
-        name: "textWidth",
-        displayName: "Text Column %",
-        description: "Width percentage for each text column (0 = auto)",
-        value: 0
-    });
-
-    sparklineWidth = new formattingSettings.NumUpDown({
-        name: "sparklineWidth",
-        displayName: "Sparkline Column %",
-        description: "Width percentage for the sparkline column (0 = auto, remainder)",
-        value: 0
-    });
-
-    name: string = "columnWidthSettings";
-    displayName: string = "Column Widths";
-    slices: Array<FormattingSettingsSlice> = [
-        this.categoryWidth,
-        this.measureWidth,
-        this.textWidth,
-        this.sparklineWidth
-    ];
-}
+// ColumnWidthSettings REMOVED (Neil 2026-07-15) — the manual per-column width
+// controls were never right; columns now auto-size to content and the sparkline
+// absorbs the remainder to fill the card. Capability object dropped too.
 
 class SortCardSettings extends FormattingSettingsCard {
     sortColumn = new formattingSettings.NumUpDown({
@@ -343,7 +308,6 @@ export class VisualFormattingSettingsModel extends FormattingSettingsModel {
     titleSettings = new TitleSettings();
     tableCardSettings = new TableCardSettings();
     sparklineCardSettings = new SparklineCardSettings();
-    columnWidthSettings = new ColumnWidthSettings();
     sortCardSettings = new SortCardSettings();
     background = new BackgroundSettings();
     visualBorder = new BorderSettings();

@@ -15,12 +15,12 @@
     table {
         width: 100%;
         border-collapse: collapse;
-        // fixed = the colgroup widths are ENFORCED. With table-layout:auto the
-        // browser ignored them and sized columns to the (nowrap) header text,
-        // so long headers overflowed into neighbours ("headers cross over" —
-        // Neil 2026-07-14). Fixed + the th ellipsis below keeps each header in
-        // its own column.
-        table-layout: fixed;
+        // auto = every column sizes to its content; the sparkline col carries
+        // width:100% so it absorbs the remaining width (Neil 2026-07-15). The
+        // header crossover that pushed us to `fixed` earlier is a MANY-column
+        // problem; the lean 4-column scorecard sizes cleanly on auto, and the
+        // th ellipsis below is the backstop.
+        table-layout: auto;
     }
 
     thead {

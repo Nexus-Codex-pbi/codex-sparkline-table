@@ -313,35 +313,6 @@
       },
       "displayName": "Sparkline Settings"
     },
-    "columnWidthSettings": {
-      "properties": {
-        "categoryWidth": {
-          "type": {
-            "numeric": true
-          },
-          "displayName": "Category Width"
-        },
-        "measureWidth": {
-          "type": {
-            "numeric": true
-          },
-          "displayName": "Measure Width"
-        },
-        "textWidth": {
-          "type": {
-            "numeric": true
-          },
-          "displayName": "Text Width"
-        },
-        "sparklineWidth": {
-          "type": {
-            "numeric": true
-          },
-          "displayName": "Sparkline Width"
-        }
-      },
-      "displayName": "Column Width Settings"
-    },
     "sortSettings": {
       "properties": {
         "sortColumn": {

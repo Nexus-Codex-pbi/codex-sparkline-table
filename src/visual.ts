@@ -531,52 +531,23 @@ export class Visual implements IVisual {
             table.style.tableLayout = "fixed";
             table.style.width = "100%";
 
-            // Column group for width distribution
+            // Content-auto column widths (Neil 2026-07-15 — the manual width
+            // control is gone). With table-layout:auto every column sizes to
+            // its own content (label / value / pill); the SPARKLINE column is
+            // the sole width:100% col, so it absorbs ALL the remaining width
+            // and runs as wide as the card allows. No fixed percentages, no
+            // drag control needed — the trend always fills the card.
             const colgroup = document.createElement("colgroup");
-            // Auto-distribute widths (Neil 2026-07-15 rebuild — the manual
-            // width card is retired). Columns: Category · Trend · [values] · Δ.
-            // Values get a legible share FIRST; the sparkline absorbs the rest.
-            // Sums to 100 for 1-4 value columns so nothing runs off the card.
-            const valueColCount = tableMeasures.length + textColCount;
-            const deltaW = 12;
-            const catW = 18;
-            const perValue = valueColCount > 0
-                ? Math.max(11, (100 - catW - deltaW - 30) / valueColCount)
-                : 0;
-            const measureW = perValue;
-            const textW = perValue;
-            const spkW = Math.max(16, 100 - catW - deltaW - perValue * valueColCount);
-
-            // Row category column
             const catCol = document.createElement("col");
-            catCol.style.width = catW + "%";
             colgroup.appendChild(catCol);
-
-            // Measure columns
-            for (let m = 0; m < tableMeasures.length; m++) {
-                const col = document.createElement("col");
-                col.style.width = measureW + "%";
-                colgroup.appendChild(col);
-            }
-
-            // Text columns
-            for (let t = 0; t < textColCount; t++) {
-                const col = document.createElement("col");
-                col.style.width = textW + "%";
-                colgroup.appendChild(col);
-            }
-
-            // Sparkline column — inserted as the 2ND column (right after the
-            // category), matching the scorecard board (Metric · Trend · NOW · Δ).
+            for (let m = 0; m < tableMeasures.length; m++) colgroup.appendChild(document.createElement("col"));
+            for (let t = 0; t < textColCount; t++) colgroup.appendChild(document.createElement("col"));
+            // Sparkline column — 2nd (right after category), width:100% flex.
             const spkCol = document.createElement("col");
-            spkCol.style.width = spkW + "%";
+            spkCol.style.width = "100%";
             colgroup.insertBefore(spkCol, catCol.nextSibling);
-
-            // Δ pill column (last)
-            const deltaCol = document.createElement("col");
-            deltaCol.style.width = deltaW + "%";
-            colgroup.appendChild(deltaCol);
-
+            // Δ pill column (last) — content-sized.
+            colgroup.appendChild(document.createElement("col"));
             table.appendChild(colgroup);
 
             // Header
@@ -631,6 +602,9 @@ export class Visual implements IVisual {
 
             // Body
             const tbody = document.createElement("tbody");
+            // Sparks are rendered in a 2nd pass (after the table lays out) so
+            // each fills its cell's ACTUAL width — the flex Trend column.
+            const sparkQueue: Array<{ td: HTMLElement; values: number[]; color: string; band: string }> = [];
 
             for (let r = 0; r < rows.length; r++) {
                 const row = rows[r];
@@ -836,23 +810,9 @@ export class Visual implements IVisual {
                     const spkColorForRow = this.isHighContrast
                         ? resolvedSpkColorHex
                         : toRgba(resolvedSpkColorHex, spkTransparencyPct);
-                    // Responsive spark width — fill the Trend column (spkW% of
-                    // the tile) instead of a fixed px, so there's no dead gap
-                    // between the spark and the next column (Neil 2026-07-15).
-                    const spkPixelWidth = Math.max(60, Math.floor((options.viewport.width - 32) * spkW / 100) - 10);
-                    const svg = this.renderSparkline(
-                        row.sparklineValues,
-                        spkPixelWidth, spkHeight,
-                        spkColorForRow, spkType,
-                        lineWidth, showDot, dotColor,
-                        {
-                            theme,
-                            hc: this.isHighContrast,
-                            bandTint: bandTintDotEnabled,
-                            bandColorHex: rowBandColor
-                        }
-                    );
-                    spkTd.appendChild(svg);
+                    // Deferred to the 2nd pass (after table layout) so the spark
+                    // fills its cell's ACTUAL width — the flex Trend column.
+                    sparkQueue.push({ td: spkTd, values: row.sparklineValues, color: spkColorForRow, band: rowBandColor });
                 } else {
                     spkTd.textContent = "\u2014";
                 }
@@ -902,6 +862,20 @@ export class Visual implements IVisual {
 
             table.appendChild(tbody);
             this.container.appendChild(table);
+
+            // 2nd pass — the table is now laid out, so each spark renders at its
+            // cell's REAL width (the flex Trend column, as wide as the card
+            // allows). This is what makes the trend fill the card without any
+            // manual width control (Neil 2026-07-15).
+            for (const q of sparkQueue) {
+                const w = Math.max(40, q.td.clientWidth - 8);
+                const svg = this.renderSparkline(
+                    q.values, w, spkHeight, q.color, spkType,
+                    lineWidth, showDot, dotColor,
+                    { theme, hc: this.isHighContrast, bandTint: bandTintDotEnabled, bandColorHex: q.band }
+                );
+                q.td.appendChild(svg);
+            }
 
             // Corner-bracket card signature (01-18 Task 3) — a table has no
             // single governing value/target, so it carries the suite's
