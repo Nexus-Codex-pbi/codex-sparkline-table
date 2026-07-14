@@ -575,6 +575,11 @@ export class Visual implements IVisual {
                 spkW = 100 - defaultColW * totalDataCols;
             }
 
+            // Δ pill column (design render, Neil 2026-07-15) — a narrow fixed
+            // column carved from the sparkline's share.
+            const deltaW = 12;
+            spkW = Math.max(15, spkW - deltaW);
+
             // Row category column
             const catCol = document.createElement("col");
             catCol.style.width = catW + "%";
@@ -594,10 +599,16 @@ export class Visual implements IVisual {
                 colgroup.appendChild(col);
             }
 
-            // Sparkline column
+            // Sparkline column — inserted as the 2ND column (right after the
+            // category), matching the scorecard board (Metric · Trend · NOW · Δ).
             const spkCol = document.createElement("col");
             spkCol.style.width = spkW + "%";
-            colgroup.appendChild(spkCol);
+            colgroup.insertBefore(spkCol, catCol.nextSibling);
+
+            // Δ pill column (last)
+            const deltaCol = document.createElement("col");
+            deltaCol.style.width = deltaW + "%";
+            colgroup.appendChild(deltaCol);
 
             table.appendChild(colgroup);
 
@@ -624,13 +635,14 @@ export class Visual implements IVisual {
             };
 
             addTh(rowCategoryName, "category-cell");
+            addTh(this.localizationManager.getDisplayName("Visual_Header_Trend") || "Trend", "sparkline-cell");
             for (let m = 0; m < tableMeasures.length; m++) {
                 addTh(measureNames[m], "measure-cell");
             }
             for (let t = 0; t < textColCount; t++) {
                 addTh(textColNames[t], "category-cell");
             }
-            addTh(this.localizationManager.getDisplayName("Visual_Header_Trend") || "Trend", "sparkline-cell");
+            addTh("Δ", "measure-cell");
             thead.appendChild(headerRow);
             table.appendChild(thead);
 
@@ -786,6 +798,38 @@ export class Visual implements IVisual {
                     tr.appendChild(td);
                 }
 
+                // Δ pill cell (design render) — the row's % change (last vs
+                // prior-average baseline, the same signal that drives the band)
+                // as a signal-tinted rounded pill. Appended last; the sparkline
+                // is then moved ahead of the measures below.
+                const deltaTd = document.createElement("td");
+                deltaTd.className = "measure-cell";
+                if (spkVals.length > 1 && spkBaseline !== 0) {
+                    const deltaPct = ((lastSpkVal - spkBaseline) / spkBaseline) * 100;
+                    const up = deltaPct >= 0;
+                    const pill = document.createElement("span");
+                    pill.textContent = `${up ? "▲" : "▼"} ${up ? "+" : "−"}${Math.abs(deltaPct).toFixed(1)}%`;
+                    pill.style.display = "inline-flex";
+                    pill.style.alignItems = "center";
+                    pill.style.fontSize = "11px";
+                    pill.style.fontWeight = "700";
+                    pill.style.padding = "2px 8px";
+                    pill.style.borderRadius = "999px";
+                    pill.style.whiteSpace = "nowrap";
+                    if (this.isHighContrast) {
+                        pill.style.color = this.hcForeground;
+                        pill.style.border = `1px solid ${this.hcForeground}`;
+                    } else {
+                        pill.style.color = rowBandColor;
+                        pill.style.backgroundColor = toRgba(rowBandColor, 85);
+                    }
+                    deltaTd.appendChild(pill);
+                } else {
+                    deltaTd.textContent = "—";
+                    deltaTd.style.color = textColor;
+                }
+                tr.appendChild(deltaTd);
+
                 // Sparkline cell
                 const spkTd = document.createElement("td");
                 spkTd.className = "sparkline-cell";
@@ -826,7 +870,8 @@ export class Visual implements IVisual {
                     spkTd.textContent = "\u2014";
                 }
 
-                tr.appendChild(spkTd);
+                // Move the sparkline to the 2nd column (right after category).
+                tr.insertBefore(spkTd, catTd.nextSibling);
 
                 // Tooltip on row hover
                 tr.style.cursor = "pointer";
