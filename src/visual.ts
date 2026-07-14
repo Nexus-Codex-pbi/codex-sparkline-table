@@ -534,51 +534,19 @@ export class Visual implements IVisual {
 
             // Column group for width distribution
             const colgroup = document.createElement("colgroup");
-            const cwSettings = this.formattingSettings.columnWidthSettings;
-            const totalDataCols = 1 + tableMeasures.length + textColCount;
-
-            // User-configured widths (0 = auto)
-            const cfgCatW = cwSettings.categoryWidth.value || 0;
-            const cfgMeasureW = cwSettings.measureWidth.value || 0;
-            const cfgTextW = cwSettings.textWidth.value || 0;
-            const cfgSpkW = cwSettings.sparklineWidth.value || 0;
-
-            // Calculate total assigned width
-            const assignedWidth = cfgCatW
-                + (cfgMeasureW * tableMeasures.length)
-                + (cfgTextW * textColCount)
-                + cfgSpkW;
-
-            // Auto-distribute: if user set some widths, auto columns split the remainder
-            // If nothing is set, fall back to even distribution with sparkline getting 40%
-            let catW: number, measureW: number, textW: number, spkW: number;
-
-            if (assignedWidth > 0) {
-                // Use configured values; auto (0) columns split the remainder equally
-                const remainder = Math.max(0, 100 - assignedWidth);
-                const autoCount = (cfgCatW ? 0 : 1)
-                    + (cfgMeasureW ? 0 : tableMeasures.length)
-                    + (cfgTextW ? 0 : textColCount)
-                    + (cfgSpkW ? 0 : 1);
-                const autoShare = autoCount > 0 ? remainder / autoCount : 0;
-
-                catW = cfgCatW || autoShare;
-                measureW = cfgMeasureW || autoShare;
-                textW = cfgTextW || autoShare;
-                spkW = cfgSpkW || autoShare;
-            } else {
-                // Default: data columns share 60%, sparkline gets 40%
-                const defaultColW = Math.min(100, Math.floor(60 / totalDataCols));
-                catW = defaultColW;
-                measureW = defaultColW;
-                textW = defaultColW + 2;
-                spkW = 100 - defaultColW * totalDataCols;
-            }
-
-            // Δ pill column (design render, Neil 2026-07-15) — a narrow fixed
-            // column carved from the sparkline's share.
+            // Auto-distribute widths (Neil 2026-07-15 rebuild — the manual
+            // width card is retired). Columns: Category · Trend · [values] · Δ.
+            // Values get a legible share FIRST; the sparkline absorbs the rest.
+            // Sums to 100 for 1-4 value columns so nothing runs off the card.
+            const valueColCount = tableMeasures.length + textColCount;
             const deltaW = 12;
-            spkW = Math.max(15, spkW - deltaW);
+            const catW = 18;
+            const perValue = valueColCount > 0
+                ? Math.max(11, (100 - catW - deltaW - 30) / valueColCount)
+                : 0;
+            const measureW = perValue;
+            const textW = perValue;
+            const spkW = Math.max(16, 100 - catW - deltaW - perValue * valueColCount);
 
             // Row category column
             const catCol = document.createElement("col");
@@ -631,6 +599,10 @@ export class Visual implements IVisual {
                 th.style.fontStyle = headerStyle;
                 th.style.textDecoration = headerDecoration;
                 th.style.height = rowHeight + "px";
+                // Scorecard-board header treatment (Neil 2026-07-15): muted
+                // uppercase micro-tracking — the "METRIC · NOW · Δ" eyebrow look.
+                th.style.textTransform = "uppercase";
+                th.style.letterSpacing = "0.08em";
                 headerRow.appendChild(th);
             };
 
@@ -1014,19 +986,24 @@ export class Visual implements IVisual {
             }
         } else {
             // Line or area
-            if (type === "area") {
-                const areaGen = area<number>()
-                    .x((_d, i) => xScale(i))
-                    .y0(height - padding)
-                    .y1(d => yScale(d))
-                    .curve(curveMonotoneX);
-
-                const areaPath = document.createElementNS(svgNs, "path");
-                areaPath.setAttribute("d", areaGen(data) || "");
+            // Soft area fill under the line — ALWAYS drawn now (the board's
+            // spark grammar; the type control is retired). Bolder on dark so
+            // the signal-coloured wash reads; softer on light. HC drops it.
+            const isDark = v3.theme === "dark" && !v3.hc;
+            const areaGen = area<number>()
+                .x((_d, i) => xScale(i))
+                .y0(height - padding)
+                .y1(d => yScale(d))
+                .curve(curveMonotoneX);
+            const areaPath = document.createElementNS(svgNs, "path");
+            areaPath.setAttribute("d", areaGen(data) || "");
+            if (v3.hc) {
+                areaPath.setAttribute("fill", "none");
+            } else {
                 areaPath.setAttribute("fill", color);
-                areaPath.setAttribute("fill-opacity", "0.15");
-                svg.appendChild(areaPath);
+                areaPath.setAttribute("fill-opacity", isDark ? "0.30" : "0.15");
             }
+            svg.appendChild(areaPath);
 
             const lineGen = line<number>()
                 .x((_d, i) => xScale(i))
@@ -1038,6 +1015,13 @@ export class Visual implements IVisual {
             linePath.setAttribute("fill", "none");
             linePath.setAttribute("stroke", color);
             linePath.setAttribute("stroke-width", String(strokeWidth));
+            linePath.setAttribute("stroke-linecap", "round");
+            linePath.setAttribute("stroke-linejoin", "round");
+            // Neon glow on dark (per-line inline filter, no shared-id collision
+            // across the table's many sparks).
+            if (isDark) {
+                linePath.style.filter = `drop-shadow(0 0 2px color-mix(in srgb, ${color} 60%, transparent))`;
+            }
             svg.appendChild(linePath);
 
             // v2 board look (01-18 Task 3) — min/max whisper ticks, the

@@ -164,18 +164,13 @@ class TableCardSettings extends FormattingSettingsCard {
 
     name: string = "tableSettings";
     displayName: string = "Table";
+    // Lean control set (Neil 2026-07-15 rebuild — "a lot less tweakable
+    // fields"). The hidden properties stay DECLARED in capabilities (saved
+    // reports safe) but are removed from the pane; their sensible defaults
+    // (adaptive header/text, band-tinted value, auto alt-row) now govern.
     slices: Array<FormattingSettingsSlice> = [
-        this.headerBackground,
-        this.headerTextColor,
-        this.headerFont,
         this.rowColor,
-        this.alternateRowColor,
-        this.rowTransparency,
         this.textColor,
-        this.rowLabelFont,
-        this.measureTextColor,
-        this.bandTintValue,
-        this.valueFont,
         this.fontSize,
         this.rowHeight,
         this.showGridLines
@@ -269,15 +264,11 @@ class SparklineCardSettings extends FormattingSettingsCard {
 
     name: string = "sparklineSettings";
     displayName: string = "Sparkline";
+    // Lean set: colour override + dot toggle + line width. Dimensions,
+    // transparency, type and band-tint toggle are hidden (auto/always-on).
     slices: Array<FormattingSettingsSlice> = [
-        this.sparklineWidth,
-        this.sparklineHeight,
         this.sparklineColor,
-        this.sparklineTransparency,
-        this.sparklineType,
         this.showDot,
-        this.dotColor,
-        this.bandTintDot,
         this.lineWidth
     ];
 }
@@ -377,7 +368,10 @@ export class VisualFormattingSettingsModel extends FormattingSettingsModel {
         this.background.transparency.value = 100;
     }
 
-    cards = [this.titleSettings, this.tableCardSettings, this.sparklineCardSettings, this.columnWidthSettings, this.sortCardSettings, this.background,
+    // columnWidthSettings retired from the pane (Neil 2026-07-15 — the px-by-px
+    // width tweaking was the worst offender; widths now auto-distribute). The
+    // card + its properties stay declared elsewhere for saved-report safety.
+    cards = [this.titleSettings, this.tableCardSettings, this.sparklineCardSettings, this.sortCardSettings, this.background,
         this.cardSignature, this.visualBorder
     ];
 }
