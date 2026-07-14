@@ -423,14 +423,23 @@ export class Visual implements IVisual {
                 tblSettings.measureTextColor.value.value
             );
 
-            // v3 theme pick (01-18 Task 3) — this visual's Row Color is
-            // always opaque at its own default, so it is a reliable signal
-            // for the shared band engine / corner-signature glow budget.
-            const theme: Theme = themeFor(tblSettings.rowColor.value.value);
-            // D-16 adaptive sweep (Neil 2026-07 pattern): the untouched
-            // LIGHT-theme colour defaults swap to dark tokens when the user
-            // sets a dark Row Color, so a dark table isn't invisible text/
-            // chrome. HC wins; a user-set colour is honoured verbatim.
+            // Theme-source ladder (Neil 2026-07-14 "the colour switch doesn't
+            // work"): the VISIBLE surface governs light/dark so changing the
+            // Background flips the whole table — not just the Row Color. Order:
+            //   1. a painted visual Background (transparency < 100) → its hex
+            //   2. else a user-set Row Color (≠ white sentinel) → that
+            //   3. else the report-theme palette background
+            //   4. else the white sentinel
+            const rowColorRaw = tblSettings.rowColor.value.value;
+            const rowUserSet = rowColorRaw !== "#ffffff";
+            const bgPainted = (outerBgTransparencyPct ?? 100) < 100;
+            const reportThemeBg = (this.host.colorPalette as any)?.background?.value as string | undefined;
+            const governingBg = bgPainted ? outerBgHex
+                : (rowUserSet ? rowColorRaw : (reportThemeBg ?? rowColorRaw));
+            const theme: Theme = themeFor(this.isHighContrast ? this.hcBackground : governingBg);
+            // D-16 adaptive sweep: untouched LIGHT-theme defaults swap to dark
+            // tokens on a dark surface so nothing is invisible. HC wins; a
+            // user-set colour is honoured verbatim.
             const dk = surfaceTokens("dark");
             const adapt = (userHex: string, defHex: string, darkTok: string): string =>
                 (userHex === defHex && theme === "dark") ? darkTok : userHex;
@@ -438,7 +447,11 @@ export class Visual implements IVisual {
             // Retrieve settings values, applying high contrast overrides
             const headerBg = this.isHighContrast ? this.hcBackground : adapt(tblSettings.headerBackground.value.value, "#f8f6f0", dk.card);
             const headerTextColor = this.isHighContrast ? this.hcForeground : adapt(tblSettings.headerTextColor.value.value, "#333333", dk.muted);
-            const rowColor = this.isHighContrast ? this.hcBackground : tblSettings.rowColor.value.value;
+            // Rows follow the surface: an explicit Row Color is honoured; else
+            // the rows go dark on a dark background (so the whole table adapts,
+            // not just the text) and stay white on light (D-06 parity).
+            const rowColor = this.isHighContrast ? this.hcBackground
+                : (rowUserSet ? rowColorRaw : (theme === "dark" ? dk.card : "#ffffff"));
             const altRowColor = this.isHighContrast ? this.hcBackground : adapt(tblSettings.alternateRowColor.value.value, "#faf9f5", dk.canvas);
 
             const bandTintValueEnabled = tblSettings.bandTintValue?.value ?? true;

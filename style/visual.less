@@ -8,7 +8,12 @@
     table {
         width: 100%;
         border-collapse: collapse;
-        table-layout: auto;
+        // fixed = the colgroup widths are ENFORCED. With table-layout:auto the
+        // browser ignored them and sized columns to the (nowrap) header text,
+        // so long headers overflowed into neighbours ("headers cross over" —
+        // Neil 2026-07-14). Fixed + the th ellipsis below keeps each header in
+        // its own column.
+        table-layout: fixed;
     }
 
     thead {
@@ -21,6 +26,8 @@
             text-align: left;
             font-weight: 600;
             white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
             border-bottom: 2px solid #e0ddd4;
             color: #333;
             user-select: none;
