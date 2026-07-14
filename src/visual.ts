@@ -797,10 +797,15 @@ export class Visual implements IVisual {
                     // static swatch) + per-region transparency (D-05),
                     // applied uniformly to line/area/bar (never Dot Color).
                     const instanceObjects = this.rowCatColumnForFx?.objects?.[row.firstRawIndex];
+                    // Band-tinted spark (design render, Neil 2026-07-15): when
+                    // the sparkline colour is left at its default, the line +
+                    // fill follow the ROW's signal colour (green rising / amber
+                    // flat / red falling), matching the scorecard board instead
+                    // of a flat cyan. A user-set colour / fx rule is honoured.
                     const resolvedSpkColorHex = this.isHighContrast
                         ? this.hcForeground
                         : adapt(this.sparklineColorHelper?.getColorForMeasure(instanceObjects, "sparklineColor")
-                            ?? spkSettings.sparklineColor.value.value, "#130064", accentToken(theme));
+                            ?? spkSettings.sparklineColor.value.value, "#130064", rowBandColor);
                     const spkColorForRow = this.isHighContrast
                         ? resolvedSpkColorHex
                         : toRgba(resolvedSpkColorHex, spkTransparencyPct);
