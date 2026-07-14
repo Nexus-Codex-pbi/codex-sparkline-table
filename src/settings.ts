@@ -12,6 +12,7 @@ import { BackgroundSettings } from "./shared/backgroundSettings";
 import { TitleSettings } from "./shared/titleSettings";
 import { textAlignFor, makeFontControl } from "./shared/textFormatting";
 import { CardSignatureSettings } from "./shared/cardSignatureSettings";
+import { BorderSettings } from "./shared/borderSettings";
 
 // TitleSettings + alignment helpers live in _shared/formatting/ (D-13,
 // D-14 — frozen v2 standard from Plan 10). Re-exported so visual.ts can
@@ -354,6 +355,7 @@ export class VisualFormattingSettingsModel extends FormattingSettingsModel {
     columnWidthSettings = new ColumnWidthSettings();
     sortCardSettings = new SortCardSettings();
     background = new BackgroundSettings();
+    visualBorder = new BorderSettings();
 
     constructor() {
         super();
@@ -376,6 +378,6 @@ export class VisualFormattingSettingsModel extends FormattingSettingsModel {
     }
 
     cards = [this.titleSettings, this.tableCardSettings, this.sparklineCardSettings, this.columnWidthSettings, this.sortCardSettings, this.background,
-        this.cardSignature
+        this.cardSignature, this.visualBorder
     ];
 }

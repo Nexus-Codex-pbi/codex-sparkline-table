@@ -30,6 +30,7 @@ import { formatValue, CODEX_TOKENS } from "./utils";
 // corner-bracket card signature + row-hover elevation lift.
 import { Theme, band, bandColor, accentToken } from "./shared/bandEngine";
 import { surfaceTokens } from "./shared/designTokens";
+import { applyBorder } from "./shared/borderSettings";
 import { makeCornerBrackets, CardSignatureHandle } from "./shared/cardSignature";
 import { applyCardSignature } from "./shared/cardSignatureSettings";
 
@@ -422,21 +423,29 @@ export class Visual implements IVisual {
                 tblSettings.measureTextColor.value.value
             );
 
-            // Retrieve settings values, applying high contrast overrides
-            const headerBg = this.isHighContrast ? this.hcBackground : tblSettings.headerBackground.value.value;
-            const headerTextColor = this.isHighContrast ? this.hcForeground : tblSettings.headerTextColor.value.value;
-            const rowColor = this.isHighContrast ? this.hcBackground : tblSettings.rowColor.value.value;
-            const altRowColor = this.isHighContrast ? this.hcBackground : tblSettings.alternateRowColor.value.value;
-
             // v3 theme pick (01-18 Task 3) — this visual's Row Color is
             // always opaque at its own default, so it is a reliable signal
             // for the shared band engine / corner-signature glow budget.
             const theme: Theme = themeFor(tblSettings.rowColor.value.value);
+            // D-16 adaptive sweep (Neil 2026-07 pattern): the untouched
+            // LIGHT-theme colour defaults swap to dark tokens when the user
+            // sets a dark Row Color, so a dark table isn't invisible text/
+            // chrome. HC wins; a user-set colour is honoured verbatim.
+            const dk = surfaceTokens("dark");
+            const adapt = (userHex: string, defHex: string, darkTok: string): string =>
+                (userHex === defHex && theme === "dark") ? darkTok : userHex;
+
+            // Retrieve settings values, applying high contrast overrides
+            const headerBg = this.isHighContrast ? this.hcBackground : adapt(tblSettings.headerBackground.value.value, "#f8f6f0", dk.card);
+            const headerTextColor = this.isHighContrast ? this.hcForeground : adapt(tblSettings.headerTextColor.value.value, "#333333", dk.muted);
+            const rowColor = this.isHighContrast ? this.hcBackground : tblSettings.rowColor.value.value;
+            const altRowColor = this.isHighContrast ? this.hcBackground : adapt(tblSettings.alternateRowColor.value.value, "#faf9f5", dk.canvas);
+
             const bandTintValueEnabled = tblSettings.bandTintValue?.value ?? true;
             const bandTintDotEnabled = spkSettings.bandTintDot?.value ?? true;
             const rowTransparencyPct = tblSettings.rowTransparency.value ?? 0;
-            const textColor = this.isHighContrast ? this.hcForeground : tblSettings.textColor.value.value;
-            const measureTextColor = this.isHighContrast ? this.hcForeground : tblSettings.measureTextColor.value.value;
+            const textColor = this.isHighContrast ? this.hcForeground : adapt(tblSettings.textColor.value.value, "#333333", dk.text);
+            const measureTextColor = this.isHighContrast ? this.hcForeground : adapt(tblSettings.measureTextColor.value.value, "#333333", dk.text);
             const fontSize = tblSettings.fontSize.value;
             const rowHeight = tblSettings.rowHeight.value;
             const showGrid = tblSettings.showGridLines.value;
@@ -777,8 +786,8 @@ export class Visual implements IVisual {
                     const instanceObjects = this.rowCatColumnForFx?.objects?.[row.firstRawIndex];
                     const resolvedSpkColorHex = this.isHighContrast
                         ? this.hcForeground
-                        : (this.sparklineColorHelper?.getColorForMeasure(instanceObjects, "sparklineColor")
-                            ?? spkSettings.sparklineColor.value.value);
+                        : adapt(this.sparklineColorHelper?.getColorForMeasure(instanceObjects, "sparklineColor")
+                            ?? spkSettings.sparklineColor.value.value, "#130064", accentToken(theme));
                     const spkColorForRow = this.isHighContrast
                         ? resolvedSpkColorHex
                         : toRgba(resolvedSpkColorHex, spkTransparencyPct);
@@ -855,6 +864,17 @@ export class Visual implements IVisual {
                 mirror: true,
                 glowMix: this.isHighContrast ? 0 : (theme === "dark" ? 55 : 0),
                 muted: false
+            });
+
+            // Visual's own Border card — CSS border on the render container so
+            // it wraps the whole table; Corner Radius rounds it (overflow left
+            // as-is — a large table may scroll). fx colour via metadata objects.
+            this.container.style.boxSizing = "border-box";
+            applyBorder(this.container, this.formattingSettings.visualBorder, {
+                hcActive: this.isHighContrast,
+                hcColor: this.hcForeground,
+                palette: this.host.colorPalette,
+                metadataObjects: dataView?.metadata?.objects,
             });
 
             this.eventService.renderingFinished(options);
