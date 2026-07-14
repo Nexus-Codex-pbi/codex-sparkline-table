@@ -121,3 +121,19 @@
         padding: 20px;
     }
 }
+
+// Click-and-drag column resize handle — thin strip on the header cell's right
+// border. Transparent until hover (then the brand violet), cursor col-resize.
+.col-resize-handle {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 7px;
+    height: 100%;
+    cursor: col-resize;
+    user-select: none;
+    z-index: 3;
+}
+.col-resize-handle:hover {
+    background: rgba(124, 58, 237, 0.45);
+}

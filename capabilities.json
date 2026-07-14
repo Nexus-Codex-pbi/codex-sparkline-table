@@ -523,6 +523,15 @@
           }
         }
       }
+    },
+    "columnResize": {
+      "properties": {
+        "widths": {
+          "type": {
+            "text": true
+          }
+        }
+      }
     }
   },
   "dataViewMappings": [

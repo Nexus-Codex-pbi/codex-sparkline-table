@@ -531,39 +531,42 @@ export class Visual implements IVisual {
             table.style.tableLayout = "fixed";
             table.style.width = "100%";
 
-            // Auto column widths (Neil 2026-07-15 — the manual width control is
-            // gone). Fixed-layout percentages, computed (not user-set): the
-            // TREND gets the lion's share so it runs wide, values get a legible
-            // share, Δ a slim slot. Sums to 100 so nothing runs off the card,
-            // and it degrades sanely as more value columns are bound.
+            // Column widths (Neil 2026-07-15). DEFAULT = computed auto layout:
+            // Trend wide, values legible, Δ slim, sums to 100. These can be
+            // click-and-drag resized (handles added on the header below); a drag
+            // persists the new widths via persistProperties, and they override
+            // the defaults on the next render. DOM/column order:
+            //   cat · spark · [measures] · [text] · Δ
             const valueColCount = tableMeasures.length + textColCount;
             const catW = 16;
             const deltaW = 10;
             const perValue = valueColCount > 0 ? Math.min(20, Math.max(13, 44 / valueColCount)) : 0;
             const spkW = Math.max(20, 100 - catW - deltaW - perValue * valueColCount);
+            const defaultWidths: number[] = [catW, spkW];
+            for (let m = 0; m < tableMeasures.length; m++) defaultWidths.push(perValue);
+            for (let t = 0; t < textColCount; t++) defaultWidths.push(perValue);
+            defaultWidths.push(deltaW);
+
+            let widths = defaultWidths;
+            try {
+                const rawWidths = (dataView.metadata?.objects?.columnResize as { widths?: string } | undefined)?.widths;
+                if (typeof rawWidths === "string" && rawWidths) {
+                    const parsed = JSON.parse(rawWidths);
+                    if (Array.isArray(parsed) && parsed.length === defaultWidths.length
+                        && parsed.every((n) => typeof n === "number" && n > 0)) {
+                        widths = parsed as number[];
+                    }
+                }
+            } catch { /* bad persisted value — fall back to defaults */ }
 
             const colgroup = document.createElement("colgroup");
-            const catCol = document.createElement("col");
-            catCol.style.width = catW + "%";
-            colgroup.appendChild(catCol);
-            for (let m = 0; m < tableMeasures.length; m++) {
+            const cols: HTMLElement[] = [];
+            for (let i = 0; i < widths.length; i++) {
                 const col = document.createElement("col");
-                col.style.width = perValue + "%";
+                col.style.width = widths[i] + "%";
                 colgroup.appendChild(col);
+                cols.push(col);
             }
-            for (let t = 0; t < textColCount; t++) {
-                const col = document.createElement("col");
-                col.style.width = perValue + "%";
-                colgroup.appendChild(col);
-            }
-            // Sparkline column — 2nd (right after category), gets the wide share.
-            const spkCol = document.createElement("col");
-            spkCol.style.width = spkW + "%";
-            colgroup.insertBefore(spkCol, catCol.nextSibling);
-            // Δ pill column (last).
-            const deltaCol = document.createElement("col");
-            deltaCol.style.width = deltaW + "%";
-            colgroup.appendChild(deltaCol);
             table.appendChild(colgroup);
 
             // Header
@@ -615,6 +618,54 @@ export class Visual implements IVisual {
             addTh("Δ", "measure-cell");
             thead.appendChild(headerRow);
             table.appendChild(thead);
+
+            // ─── Click-and-drag column resize (Neil 2026-07-15) ─────────────
+            // A thin handle on each header cell's right border; dragging trades
+            // width between that column and its right neighbour (min 6% each,
+            // pair sum preserved so the table always totals 100). On release
+            // the new widths persist via persistProperties and override the
+            // computed defaults next render. stopPropagation keeps the drag off
+            // the header's sort/click + the row context menu.
+            const liveWidths = widths.slice();
+            const headerThs = Array.from(headerRow.children) as HTMLElement[];
+            for (let i = 0; i < headerThs.length - 1 && i < cols.length - 1; i++) {
+                const th = headerThs[i];
+                th.style.position = "relative";
+                const handle = document.createElement("div");
+                handle.className = "col-resize-handle";
+                th.appendChild(handle);
+                handle.addEventListener("mousedown", (e: MouseEvent) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const startX = e.clientX;
+                    const tableW = table.getBoundingClientRect().width || 1;
+                    const wA = liveWidths[i];
+                    const wB = liveWidths[i + 1];
+                    const onMove = (me: MouseEvent) => {
+                        const deltaPct = ((me.clientX - startX) / tableW) * 100;
+                        let newA = wA + deltaPct;
+                        newA = Math.max(6, Math.min(wA + wB - 6, newA));
+                        const newB = (wA + wB) - newA;
+                        liveWidths[i] = newA;
+                        liveWidths[i + 1] = newB;
+                        cols[i].style.width = newA + "%";
+                        cols[i + 1].style.width = newB + "%";
+                    };
+                    const onUp = () => {
+                        document.removeEventListener("mousemove", onMove);
+                        document.removeEventListener("mouseup", onUp);
+                        this.host.persistProperties({
+                            merge: [{
+                                objectName: "columnResize",
+                                selector: null as never,
+                                properties: { widths: JSON.stringify(liveWidths.map((w) => Math.round(w * 10) / 10)) }
+                            }]
+                        });
+                    };
+                    document.addEventListener("mousemove", onMove);
+                    document.addEventListener("mouseup", onUp);
+                });
+            }
 
             // Body
             const tbody = document.createElement("tbody");
