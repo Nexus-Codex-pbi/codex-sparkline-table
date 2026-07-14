@@ -4,6 +4,13 @@
     overflow: auto;
     font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
     position: relative;
+    // Inset the table from the card edges (matches the design; also gives the
+    // last-column Δ pill room so it isn't clipped). box-sizing keeps the
+    // width:100% table inside the padded box. Safe re: cert 1180.2.5 — the
+    // contextmenu listener is on this.target and the painted container fills
+    // it, so right-clicks in this padding bubble up (verify-pbiviz confirms).
+    box-sizing: border-box;
+    padding: 0 16px;
 
     table {
         width: 100%;

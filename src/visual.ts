@@ -463,7 +463,6 @@ export class Visual implements IVisual {
             const rowHeight = tblSettings.rowHeight.value;
             const showGrid = tblSettings.showGridLines.value;
 
-            const spkWidth = spkSettings.sparklineWidth.value;
             const spkHeight = spkSettings.sparklineHeight.value;
             const spkType = spkSettings.sparklineType.value.value as string;
             const spkTransparencyPct = spkSettings.sparklineTransparency.value ?? 0;
@@ -607,7 +606,19 @@ export class Visual implements IVisual {
             };
 
             addTh(rowCategoryName, "category-cell");
-            addTh(this.localizationManager.getDisplayName("Visual_Header_Trend") || "Trend", "sparkline-cell");
+            // Trend header states the timeframe (Neil 2026-07-15) — the first→
+            // last distinct Sparkline Category label, e.g. "Trend · Jan–Jun".
+            const trendBase = this.localizationManager.getDisplayName("Visual_Header_Trend") || "Trend";
+            const spkCatSeen = new Set<string>();
+            const spkCatLabels: string[] = [];
+            for (const v of sparklineCatColumn.values) {
+                const s = String(v ?? "").trim();
+                if (s && !spkCatSeen.has(s)) { spkCatSeen.add(s); spkCatLabels.push(s); }
+            }
+            const trendHeader = spkCatLabels.length > 1
+                ? `${trendBase} · ${spkCatLabels[0]}–${spkCatLabels[spkCatLabels.length - 1]}`
+                : trendBase;
+            addTh(trendHeader, "sparkline-cell");
             for (let m = 0; m < tableMeasures.length; m++) {
                 addTh(measureNames[m], "measure-cell");
             }
@@ -825,9 +836,13 @@ export class Visual implements IVisual {
                     const spkColorForRow = this.isHighContrast
                         ? resolvedSpkColorHex
                         : toRgba(resolvedSpkColorHex, spkTransparencyPct);
+                    // Responsive spark width — fill the Trend column (spkW% of
+                    // the tile) instead of a fixed px, so there's no dead gap
+                    // between the spark and the next column (Neil 2026-07-15).
+                    const spkPixelWidth = Math.max(60, Math.floor((options.viewport.width - 32) * spkW / 100) - 10);
                     const svg = this.renderSparkline(
                         row.sparklineValues,
-                        spkWidth, spkHeight,
+                        spkPixelWidth, spkHeight,
                         spkColorForRow, spkType,
                         lineWidth, showDot, dotColor,
                         {
