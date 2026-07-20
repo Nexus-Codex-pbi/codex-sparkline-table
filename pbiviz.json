@@ -4,7 +4,7 @@
     "displayName": "Codex Sparkline Table",
     "guid": "codexSparklineTableE1F2A3B4C5D6E7F8A9B0C1D2E3F4A5B6",
     "visualClassName": "Visual",
-    "version": "1.0.0.14",
+    "version": "1.0.0.15",
     "description": "Data table with inline sparkline trend lines for compact trend visualization.",
     "supportUrl": "https://nexuscodex.nexus/support",
     "gitHubUrl": "https://github.com/Nexus-Codex-pbi/codex-sparkline-table"
@@ -24,5 +24,5 @@
   "stringResources": [
     "stringResources/en-US/resources.resjson"
   ],
-  "version": "1.0.0.0"
+  "version": "1.0.0.1"
 }
