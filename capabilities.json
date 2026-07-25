@@ -229,6 +229,56 @@
             "bool": true
           },
           "displayName": "Show Grid Lines"
+        },
+        "displayUnits": {
+          "displayName": "Display Units",
+          "type": {
+            "enumeration": [
+              {
+                "displayName": "Auto",
+                "value": "auto"
+              },
+              {
+                "displayName": "None",
+                "value": "none"
+              },
+              {
+                "displayName": "Thousands (K)",
+                "value": "thousands"
+              },
+              {
+                "displayName": "Millions (M)",
+                "value": "millions"
+              },
+              {
+                "displayName": "Billions (B)",
+                "value": "billions"
+              }
+            ]
+          }
+        },
+        "decimalPlaces": {
+          "displayName": "Decimal Places",
+          "type": {
+            "enumeration": [
+              {
+                "displayName": "Auto",
+                "value": "auto"
+              },
+              {
+                "displayName": "0",
+                "value": "0"
+              },
+              {
+                "displayName": "1",
+                "value": "1"
+              },
+              {
+                "displayName": "2",
+                "value": "2"
+              }
+            ]
+          }
         }
       },
       "displayName": "Table Settings"

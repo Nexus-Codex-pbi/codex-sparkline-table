@@ -162,6 +162,35 @@ class TableCardSettings extends FormattingSettingsCard {
         value: true
     });
 
+    // #657 — value formatting was HARDCODED at the render path (formatValue(num,"auto",0|1)),
+    // so a column could mix "3M" with "988,559" and the customer had no lever at all.
+    // Both default to "auto": auto units + decimals driven by the measure's own detected format,
+    // which is byte-identical to the previous hardcoded behaviour. Additive, saved reports safe.
+    displayUnits = new formattingSettings.ItemDropdown({
+        name: "displayUnits",
+        displayName: "Display Units",
+        items: [
+            { displayName: "Auto", value: "auto" },
+            { displayName: "None", value: "none" },
+            { displayName: "Thousands (K)", value: "thousands" },
+            { displayName: "Millions (M)", value: "millions" },
+            { displayName: "Billions (B)", value: "billions" }
+        ],
+        value: { displayName: "Auto", value: "auto" }
+    });
+
+    decimalPlaces = new formattingSettings.ItemDropdown({
+        name: "decimalPlaces",
+        displayName: "Decimal Places",
+        items: [
+            { displayName: "Auto", value: "auto" },
+            { displayName: "0", value: "0" },
+            { displayName: "1", value: "1" },
+            { displayName: "2", value: "2" }
+        ],
+        value: { displayName: "Auto", value: "auto" }
+    });
+
     name: string = "tableSettings";
     displayName: string = "Table";
     // Lean control set (Neil 2026-07-15 rebuild — "a lot less tweakable
@@ -173,7 +202,9 @@ class TableCardSettings extends FormattingSettingsCard {
         this.textColor,
         this.fontSize,
         this.rowHeight,
-        this.showGridLines
+        this.showGridLines,
+        this.displayUnits,
+        this.decimalPlaces
     ];
 }
 

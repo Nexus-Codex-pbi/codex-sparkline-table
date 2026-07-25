@@ -24,6 +24,16 @@ import { VisualFormattingSettingsModel, textAlignFor } from "./settings";
 import { toRgba } from "./shared/colorHelpers";
 import { formatValue, CODEX_TOKENS } from "./utils";
 
+/** #657 — resolve the customer's Display Units / Decimal Places for a measure cell.
+ *  Both default to "auto", which reproduces the previous hardcoded behaviour exactly:
+ *  auto units, and decimals taken from the measure's own detected format (integer -> 0, else 1). */
+function resolveNumFormat(units: string, decimals: string, fmt: string): [string, number] {
+    const u = units && units !== "auto" ? units : "auto";
+    const d = decimals && decimals !== "auto" ? parseInt(decimals, 10) : (fmt === "integer" ? 0 : 1);
+    return [u, d];
+}
+
+
 // v3 engine (01-18 Task 3) — shared spark grammar (mirrors 01-16
 // pbiKpiSparklineCard) + self-referential band tint (no genuine
 // target/goal data role, mirrors the 01-16 Callback Card precedent) +
@@ -790,10 +800,12 @@ export class Visual implements IVisual {
                         }
                     } else if (fmt === "percent") {
                         td.textContent = num.toFixed(1) + "%";
-                    } else if (fmt === "integer") {
-                        td.textContent = formatValue(num, "auto", 0);
                     } else {
-                        td.textContent = formatValue(num, "auto", 1);
+                        const ts = this.formattingSettings.tableCardSettings as any;
+                        const [u, dp] = resolveNumFormat(
+                            String(ts.displayUnits?.value?.value ?? "auto"),
+                            String(ts.decimalPlaces?.value?.value ?? "auto"), fmt);
+                        td.textContent = formatValue(num, u, dp);
                     }
                     td.style.fontSize = valueSize + "px";
                     // Apply measure text color only for non-badge cells:
@@ -906,8 +918,13 @@ export class Visual implements IVisual {
                         const fmt = rowMeasureFormats[mi];
                         let valStr: string;
                         if (fmt === "percent") valStr = num.toFixed(1) + "%";
-                        else if (fmt === "integer") valStr = formatValue(num, "auto", 0);
-                        else valStr = formatValue(num, "auto", 1);
+                        else {
+                            const ts = this.formattingSettings.tableCardSettings as any;
+                            const [u, dp] = resolveNumFormat(
+                                String(ts.displayUnits?.value?.value ?? "auto"),
+                                String(ts.decimalPlaces?.value?.value ?? "auto"), fmt);
+                            valStr = formatValue(num, u, dp);
+                        }
                         tooltipItems.push({ displayName: rowMeasureNames[mi], value: valStr });
                     }
                     this.tooltipService.show({
