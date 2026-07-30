@@ -634,7 +634,7 @@
     }
   ],
   "privileges": [],
-  "supportsHighlight": true,
+  "supportsHighlight": false,
   "supportsKeyboardFocus": true,
   "supportsLandingPage": true,
   "supportsEmptyDataView": true,
