@@ -883,7 +883,7 @@ export class Visual implements IVisual {
                 // which is why every falling negative series came out green.
                 // No computable change ⇒ no band at all: the row falls back to
                 // its flat, neutral colours rather than being tinted green.
-                const rowBandColor: string | null = deltaRatio == null
+                const rowBandColor: string | null = deltaRatio == null || deltaRatio === 0
                     ? null
                     : bandColor(band(1 + deltaRatio, 1), theme);
 
@@ -988,7 +988,8 @@ export class Visual implements IVisual {
                     const deltaPct = deltaRatio * 100;
                     const up = deltaPct >= 0;
                     const pill = document.createElement("span");
-                    pill.textContent = `${up ? "▲" : "▼"} ${up ? "+" : "−"}${Math.abs(deltaPct).toFixed(1)}%`;
+                    pill.textContent = deltaRatio === 0 ? "0.0%"
+                        : `${up ? "▲" : "▼"} ${up ? "+" : "−"}${Math.abs(deltaPct).toFixed(1)}%`;
                     pill.style.display = "inline-flex";
                     pill.style.alignItems = "center";
                     pill.style.fontSize = "11px";
@@ -1000,8 +1001,8 @@ export class Visual implements IVisual {
                         pill.style.color = this.hcForeground;
                         pill.style.border = `1px solid ${this.hcForeground}`;
                     } else {
-                        pill.style.color = rowBandColor as string;
-                        pill.style.backgroundColor = toRgba(rowBandColor as string, 85);
+                        pill.style.color = rowBandColor ?? textColor;
+                        if (rowBandColor) pill.style.backgroundColor = toRgba(rowBandColor, 85);
                     }
                     deltaTd.appendChild(pill);
                 } else {

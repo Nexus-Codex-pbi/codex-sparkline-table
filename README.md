@@ -22,7 +22,8 @@ and do not change numeric values into status labels.
 
 Delta compares the latest observed reading with the mean of preceding observed
 readings, divided by the baseline's absolute magnitude. Missing or zero baselines
-have no percentage. Each row has its own vertical spark scale.
+have no percentage. Unchanged readings show a neutral 0.0%, without a direction
+arrow. Each row has its own vertical spark scale.
 
 ## Formatting
 
