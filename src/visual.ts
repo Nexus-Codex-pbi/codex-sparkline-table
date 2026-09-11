@@ -56,6 +56,10 @@ function categoryKey(value: powerbi.PrimitiveValue): string {
     return value instanceof Date ? "date:" + value.getTime() : typeof value + ":" + String(value);
 }
 
+function bounded(value: number, fallback: number, min: number, max: number): number {
+    return Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback;
+}
+
 /** Luminance-based theme pick (matches the pbiKpiCard v3 pilot's own
  * 0.55 threshold convention) — this visual's row/background colours are
  * plain ColorPickers (always opaque at their own default), so the
@@ -581,16 +585,16 @@ export class Visual implements IVisual {
             const rowTransparencyPct = tblSettings.rowTransparency.value ?? 0;
             const textColor = this.isHighContrast ? this.hcForeground : adapt(tblSettings.textColor.value.value, "#333333", dk.text);
             const measureTextColor = this.isHighContrast ? this.hcForeground : adapt(tblSettings.measureTextColor.value.value, "#333333", dk.text);
-            const fontSize = tblSettings.fontSize.value;
-            const rowHeight = tblSettings.rowHeight.value;
+            const fontSize = bounded(tblSettings.fontSize.value, 12, 8, 72);
+            const rowHeight = bounded(tblSettings.rowHeight.value, 32, 12, 300);
             const showGrid = tblSettings.showGridLines.value;
 
-            const spkHeight = spkSettings.sparklineHeight.value;
+            const spkHeight = bounded(spkSettings.sparklineHeight.value, 24, 8, 300);
             const spkType = spkSettings.sparklineType.value.value as string;
             const spkTransparencyPct = spkSettings.sparklineTransparency.value ?? 0;
             const showDot = spkSettings.showDot.value;
             const dotColor = this.isHighContrast ? this.hcForeground : spkSettings.dotColor.value.value;
-            const lineWidth = spkSettings.lineWidth.value;
+            const lineWidth = bounded(spkSettings.lineWidth.value, 1.5, 0.5, Math.min(12, spkHeight / 2));
 
             // Per-surface text treatment (TEXT-01) — each composite's Font
             // Size 0 = "follow the shared Font Size" (D-06: an old report's
@@ -599,19 +603,19 @@ export class Visual implements IVisual {
             // hardcoded weight (header 600, category-cell 500, measure 400).
             const defaultFamily = "Segoe UI, Tahoma, Geneva, Verdana, sans-serif";
             const rowLabelFamily = tblSettings.rowLabelFontFamily?.value || defaultFamily;
-            const rowLabelSize = (tblSettings.rowLabelFontSize?.value || 0) > 0 ? tblSettings.rowLabelFontSize.value : fontSize;
+            const rowLabelSize = (tblSettings.rowLabelFontSize?.value || 0) > 0 ? bounded(tblSettings.rowLabelFontSize.value, fontSize, 8, 72) : fontSize;
             const rowLabelWeight = this.weightFor(tblSettings.rowLabelBold?.value, "500");
             const rowLabelStyle = tblSettings.rowLabelItalic?.value ? "italic" : "normal";
             const rowLabelDecoration = tblSettings.rowLabelUnderline?.value ? "underline" : "none";
 
             const valueFamily = tblSettings.valueFontFamily?.value || defaultFamily;
-            const valueSize = (tblSettings.valueFontSize?.value || 0) > 0 ? tblSettings.valueFontSize.value : fontSize;
+            const valueSize = (tblSettings.valueFontSize?.value || 0) > 0 ? bounded(tblSettings.valueFontSize.value, fontSize, 8, 72) : fontSize;
             const valueWeight = this.weightFor(tblSettings.valueBold?.value, "400");
             const valueStyle = tblSettings.valueItalic?.value ? "italic" : "normal";
             const valueDecoration = tblSettings.valueUnderline?.value ? "underline" : "none";
 
             const headerFamily = tblSettings.headerFontFamily?.value || defaultFamily;
-            const headerSize = (tblSettings.headerFontSize?.value || 0) > 0 ? tblSettings.headerFontSize.value : fontSize;
+            const headerSize = (tblSettings.headerFontSize?.value || 0) > 0 ? bounded(tblSettings.headerFontSize.value, fontSize, 8, 72) : fontSize;
             const headerWeight = this.weightFor(tblSettings.headerBold?.value, "400");
             const headerStyle = tblSettings.headerItalic?.value ? "italic" : "normal";
             const headerDecoration = tblSettings.headerUnderline?.value ? "underline" : "none";
@@ -1121,7 +1125,7 @@ export class Visual implements IVisual {
                 const savedWidth = dataView.metadata?.objects?.sparklineSettings?.sparklineWidth;
                 const availableWidth = Math.max(4, q.td.clientWidth - 8);
                 const w = typeof savedWidth === "number" && savedWidth > 0
-                    ? Math.min(availableWidth, savedWidth) : availableWidth;
+                    ? Math.max(4, Math.min(availableWidth, savedWidth)) : availableWidth;
                 const svg = this.renderSparkline(
                     q.values, w, spkHeight, q.color, spkType,
                     lineWidth, showDot, dotColor,
@@ -1299,7 +1303,7 @@ export class Visual implements IVisual {
         dotColor: string,
         v3: { theme: Theme; hc: boolean; bandTint: boolean; bandColorHex: string | null }
     ): SVGSVGElement {
-        const padding = 2;
+        const padding = Math.min(Math.max(2, strokeWidth), width / 2, height / 2);
         const svgNs = "http://www.w3.org/2000/svg";
         const svg = document.createElementNS(svgNs, "svg") as SVGSVGElement;
         svg.setAttribute("width", "100%");
@@ -1314,17 +1318,23 @@ export class Visual implements IVisual {
         const minVal = observed.length > 0 ? Math.min(...observed) : 0;
         const maxVal = observed.length > 0 ? Math.max(...observed) : 0;
 
+        const barSlot = (width - padding * 2) / Math.max(1, data.length);
         const xScale = scaleLinear()
             .domain([0, data.length - 1])
-            .range([padding, width - padding]);
+            .range(type === "bar"
+                ? [padding + barSlot / 2, width - padding - barSlot / 2]
+                : [padding, width - padding]);
 
+        const domainMin = type === "bar" ? Math.min(0, minVal) : minVal;
+        const domainMax = type === "bar" ? Math.max(0, maxVal) : maxVal;
         const yScale = scaleLinear()
-            .domain([minVal, maxVal === minVal ? minVal + 1 : maxVal])
+            .domain([domainMin, domainMax === domainMin ? domainMin + 1 : domainMax])
             .range([height - padding, padding]);
 
         if (type === "bar") {
             // Bar chart sparkline
-            const barWidth = Math.max(1, (width - padding * 2) / data.length - 1);
+            const barWidth = Math.max(0, barSlot - Math.min(1, barSlot / 4));
+            const zeroY = yScale(0);
             for (let i = 0; i < data.length; i++) {
                 // A gap draws NO bar — not a zero-height bar sitting on the
                 // axis, which would read as an observed zero (§1).
@@ -1332,9 +1342,9 @@ export class Visual implements IVisual {
                 const rect = document.createElementNS(svgNs, "rect");
                 const x = xScale(i) - barWidth / 2;
                 const y = yScale(data[i] as number);
-                const barHeight = height - padding - y;
-                rect.setAttribute("x", String(Math.max(padding, x)));
-                rect.setAttribute("y", String(y));
+                const barHeight = Math.max(1, Math.abs(zeroY - y));
+                rect.setAttribute("x", String(x));
+                rect.setAttribute("y", String(Math.min(height - padding - barHeight, Math.min(zeroY, y))));
                 rect.setAttribute("width", String(barWidth));
                 rect.setAttribute("height", String(Math.max(0, barHeight)));
                 rect.setAttribute("fill", color);
@@ -1401,8 +1411,8 @@ export class Visual implements IVisual {
                     const tick = document.createElementNS(svgNs, "line");
                     tick.setAttribute("x1", String(cx));
                     tick.setAttribute("x2", String(cx));
-                    tick.setAttribute("y1", String(cy - 3));
-                    tick.setAttribute("y2", String(cy + 3));
+                    tick.setAttribute("y1", String(Math.max(0, cy - 3)));
+                    tick.setAttribute("y2", String(Math.min(height, cy + 3)));
                     tick.setAttribute("stroke", whiskerColor);
                     tick.setAttribute("stroke-width", "1");
                     tick.setAttribute("opacity", "0.6");
