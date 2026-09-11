@@ -192,13 +192,15 @@ export class Visual implements IVisual {
 
         this.container = document.createElement("div");
         this.container.className = "sparkline-table-container";
+        if (this.isHighContrast) this.container.style.backgroundColor = this.hcBackground;
         this.target.appendChild(this.container);
 
         this.target.style.position = "relative";
-        this.cornerSignature = makeCornerBrackets(this.target, "#8f8ab8", {
+        this.cornerSignature = makeCornerBrackets(this.target, this.isHighContrast ? this.hcForeground : "#8f8ab8", {
             variant: "cornerBracket",
             mirror: true,
-            muted: true
+            muted: !this.isHighContrast,
+            glowMix: this.isHighContrast ? 0 : undefined
         });
 
         // Context menu
