@@ -22,18 +22,8 @@ import { ColorHelper } from "powerbi-visuals-utils-colorutils";
 
 import { VisualFormattingSettingsModel, textAlignFor } from "./settings";
 import { toRgba } from "./shared/colorHelpers";
-import { formatModelNumber, fractionDigitsFor } from "./shared/numberFormat";
+import { formatModelNumber } from "./shared/numberFormat";
 import { applyHighContrast, HighContrastPalette } from "./shared/highContrast";
-import { formatValue, CODEX_TOKENS } from "./utils";
-
-/** #657 — resolve the customer's Display Units / Decimal Places for a measure cell.
- *  Both default to "auto", which reproduces the previous hardcoded behaviour exactly:
- *  auto units, and decimals taken from the measure's own detected format (integer -> 0, else 1). */
-function resolveNumFormat(units: string, decimals: string, fmt: string): [string, number] {
-    const u = units && units !== "auto" ? units : "auto";
-    const d = decimals && decimals !== "auto" ? parseInt(decimals, 10) : (fmt === "integer" ? 0 : 1);
-    return [u, d];
-}
 
 
 // v3 engine (01-18 Task 3) — shared spark grammar (mirrors 01-16
@@ -1223,9 +1213,8 @@ export class Visual implements IVisual {
      *  at "auto" (i.e. has expressed no preference), the measure's own model
      *  format and the host locale govern: a `0.00%` measure is a FRACTION and
      *  must be multiplied by 100, and a `$#,0.00` measure keeps its symbol and
-     *  its two decimals. When either lever IS set the customer's explicit
-     *  units/precision win, exactly as they did before — that path is
-     *  untouched so every saved report using it renders identically. */
+     *  its two decimals. Explicit units/precision alter only scale and digits;
+     *  model symbols and the host locale still govern. */
     private formatMeasure(value: number, count: number, kind: string, modelFormat: string): string {
         if (count <= 0) return "—";
         const ts = this.formattingSettings.tableCardSettings as any;
@@ -1237,18 +1226,25 @@ export class Visual implements IVisual {
             return formatModelNumber(value, modelFormat, this.host?.locale || undefined);
         }
 
-        if (kind === "percent") {
-            // An explicit Decimal Places still governs the digit count, but the
-            // fraction→percent conversion belongs to the model format and is
-            // not optional — appending "%" to the raw fraction was the 100x
-            // understatement.
-            const explicitDp = rawDecimals !== "auto" ? parseInt(rawDecimals, 10) : NaN;
-            const dp = Number.isFinite(explicitDp) ? explicitDp : fractionDigitsFor(modelFormat).max;
-            return (value * 100).toFixed(dp) + "%";
+        let format = modelFormat || (kind === "integer" ? "#,0" : "#,0.0");
+        const explicitDp = rawDecimals !== "auto" ? Number(rawDecimals) : NaN;
+        if (Number.isFinite(explicitDp)) {
+            const dp = Math.max(0, Math.min(20, Math.trunc(explicitDp)));
+            format = format.replace(/([#0][,#0]*)(?:\.[0#]+)?/g,
+                (_match, integer: string) => integer + (dp ? "." + "0".repeat(dp) : ""));
         }
-
-        const [u, dp] = resolveNumFormat(rawUnits, rawDecimals, kind);
-        return formatValue(value, u, dp);
+        let divisor = 1;
+        let suffix = "";
+        if (kind !== "percent") {
+            const units = rawUnits === "auto"
+                ? (Math.abs(value) >= 1e9 ? "billions" : Math.abs(value) >= 1e6 ? "millions" : "none")
+                : rawUnits;
+            const scaling: Record<string, [number, string]> = {
+                thousands: [1e3, "K"], millions: [1e6, "M"], billions: [1e9, "B"]
+            };
+            [divisor, suffix] = scaling[units] ?? [1, ""];
+        }
+        return formatModelNumber(value / divisor, format, this.host?.locale || undefined) + suffix;
     }
 
     private renderEmpty(message: string): void {
