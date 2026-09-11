@@ -56,8 +56,15 @@ direction; ties retain source order.
 ## Interaction
 
 Click a row to select its category; Ctrl/Command supports multiple selection.
-Right-click opens the host context menu. Tooltips describe displayed row data.
-High-contrast mode uses the host palette.
+Click the background to clear selection. Selection outlines follow category
+identity across sorting and updates, including host-driven selection changes.
+Right-click opens the host context menu for the row under the pointer.
+Tab reaches rows and column separators. Enter/Space selects a focused row,
+Escape clears, Up/Down/Home/End navigates rows, and Shift+F10 opens its menu.
+Left/Right resizes a focused separator; Shift increases the step.
+Selection, menus and resizing respect the host's interaction permission.
+Tooltips include numeric and text columns, the period, latest reading/category,
+prior mean, and displayed Delta. High-contrast mode uses the host palette.
 
 ## Boundaries
 

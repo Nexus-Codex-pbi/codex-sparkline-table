@@ -144,3 +144,9 @@
 .col-resize-handle:hover {
     background: var(--codex-resize-hover, rgba(124, 58, 237, 0.45));
 }
+
+.col-resize-handle:focus-visible,
+.sparkline-table-container tbody tr:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: -2px;
+}

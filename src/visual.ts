@@ -129,6 +129,8 @@ export class Visual implements IVisual {
     private hcForeground: string = "#000000";
     private hcBackground: string = "#ffffff";
     private contextMenuHandler: (e: MouseEvent) => void;
+    private backgroundClickHandler: (e: MouseEvent) => void;
+    private selectionRows: Array<{ element: HTMLTableRowElement; identity: ISelectionId }> = [];
 
     // State for the Sparkline Colour fx wiring (TRANS-04) — per-row object
     // overrides live on the raw DataViewCategoryColumn.objects, indexed by
@@ -179,6 +181,7 @@ export class Visual implements IVisual {
         this.host = options.host;
         this.eventService = options.host.eventService;
         this.selectionManager = options.host.createSelectionManager();
+        this.selectionManager.registerOnSelectCallback(ids => this.applySelection(ids));
         this.tooltipService = options.host.tooltipService;
         this.localizationManager = options.host.createLocalizationManager();
 
@@ -200,16 +203,25 @@ export class Visual implements IVisual {
 
         // Context menu
         this.contextMenuHandler = (e: MouseEvent) => {
-            this.selectionManager.showContextMenu({} as powerbi.extensibility.ISelectionId, { x: e.clientX, y: e.clientY });
             e.preventDefault();
+            if (this.disposed || !this.interactionsAllowed()) return;
+            const element = (e.target as Element)?.closest("tbody tr");
+            const identity = this.selectionRows.find(row => row.element === element)?.identity;
+            this.selectionManager.showContextMenu(identity ?? {} as powerbi.extensibility.ISelectionId, { x: e.clientX, y: e.clientY });
         };
         this.target.addEventListener("contextmenu", this.contextMenuHandler);
+        this.backgroundClickHandler = (e: MouseEvent) => {
+            if (this.disposed || !this.interactionsAllowed() || (e.target as Element)?.closest("table")) return;
+            this.selectionManager.clear().then(() => this.applySelection([]));
+        };
+        this.target.addEventListener("click", this.backgroundClickHandler);
     }
 
     public update(options: VisualUpdateOptions): void {
         if (this.disposed) return;
         this.renderEvents.abort();
         this.renderEvents = new AbortController();
+        this.selectionRows = [];
         // §12 — this render replaces the colgroup and the resize handles an
         // in-flight drag closed over, so that drag cannot be allowed to finish:
         // its mouseup was persisting the OLD width vector against the NEW
@@ -676,6 +688,9 @@ export class Visual implements IVisual {
 
             // Build the table
             const table = document.createElement("table");
+            table.setAttribute("role", "grid");
+            table.setAttribute("aria-label", rowCategoryName);
+            table.setAttribute("aria-multiselectable", "true");
             table.style.tableLayout = "fixed";
             table.style.width = "100%";
 
@@ -801,8 +816,36 @@ export class Visual implements IVisual {
                 th.style.position = "relative";
                 const handle = document.createElement("div");
                 handle.className = "col-resize-handle";
+                handle.tabIndex = this.interactionsAllowed() ? 0 : -1;
+                handle.setAttribute("role", "separator");
+                handle.setAttribute("aria-orientation", "vertical");
+                handle.setAttribute("aria-label", `Resize ${th.textContent}`);
+                handle.setAttribute("aria-valuenow", String(Math.round(liveWidths[i])));
+                handle.title = `Resize ${th.textContent}`;
                 th.appendChild(handle);
+                const setPair = (wA: number, wB: number, deltaPct: number, tableW: number) => {
+                    const minA = Math.min((wA + wB) / 2, (minimumColumnWidths[i] ?? 1) / tableW * 100);
+                    const minB = Math.min((wA + wB) / 2, (minimumColumnWidths[i + 1] ?? 1) / tableW * 100);
+                    const newA = Math.max(minA, Math.min(wA + wB - minB, wA + deltaPct));
+                    const newB = wA + wB - newA;
+                    liveWidths[i] = newA;
+                    liveWidths[i + 1] = newB;
+                    cols[i].style.width = newA + "%";
+                    cols[i + 1].style.width = newB + "%";
+                    handle.setAttribute("aria-valuenow", String(Math.round(newA)));
+                    fitTable();
+                };
+                this.listen(handle, "keydown", (e: KeyboardEvent) => {
+                    if (!this.interactionsAllowed() || !["ArrowLeft", "ArrowRight"].includes(e.key)) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setPair(liveWidths[i], liveWidths[i + 1],
+                        (e.key === "ArrowRight" ? 1 : -1) * (e.shiftKey ? 5 : 1),
+                        table.getBoundingClientRect().width || 1);
+                    persistWidths();
+                });
                 this.listen(handle, "mousedown", (e: MouseEvent) => {
+                    if (!this.interactionsAllowed()) return;
                     e.preventDefault();
                     e.stopPropagation();
                     const startX = e.clientX;
@@ -810,17 +853,7 @@ export class Visual implements IVisual {
                     const wA = liveWidths[i];
                     const wB = liveWidths[i + 1];
                     const onMove = (me: MouseEvent) => {
-                        const deltaPct = ((me.clientX - startX) / tableW) * 100;
-                        let newA = wA + deltaPct;
-                        const minA = Math.min((wA + wB) / 2, (minimumColumnWidths[i] ?? 1) / tableW * 100);
-                        const minB = Math.min((wA + wB) / 2, (minimumColumnWidths[i + 1] ?? 1) / tableW * 100);
-                        newA = Math.max(minA, Math.min(wA + wB - minB, newA));
-                        const newB = (wA + wB) - newA;
-                        liveWidths[i] = newA;
-                        liveWidths[i + 1] = newB;
-                        cols[i].style.width = newA + "%";
-                        cols[i + 1].style.width = newB + "%";
-                        fitTable();
+                        setPair(wA, wB, ((me.clientX - startX) / tableW) * 100, tableW);
                     };
                     // §12 — detaching the document listeners is now a named
                     // operation the visual OWNS, so destroy() and the next
@@ -852,6 +885,9 @@ export class Visual implements IVisual {
             for (let r = 0; r < rows.length; r++) {
                 const row = rows[r];
                 const tr = document.createElement("tr");
+                tr.tabIndex = this.interactionsAllowed() ? 0 : -1;
+                tr.setAttribute("aria-selected", "false");
+                if (row.selectionId) this.selectionRows.push({ element: tr, identity: row.selectionId });
                 tr.style.height = rowHeight + "px";
 
                 // Row background color — per-region transparency (D-05)
@@ -865,6 +901,7 @@ export class Visual implements IVisual {
                     : adaptiveInk(tblSettings.textColor.value.value, "#333333", rowSurface);
                 const measureTextColor = this.isHighContrast ? this.hcForeground
                     : adaptiveInk(tblSettings.measureTextColor.value.value, "#333333", rowSurface);
+                tr.style.color = textColor;
                 const rowRestingBg = this.isHighContrast
                     ? rowBaseColor
                     : toRgba(rowBaseColor, rowTransparencyPct);
@@ -1096,6 +1133,7 @@ export class Visual implements IVisual {
 
                 // Move the sparkline to the 2nd column (right after category).
                 tr.insertBefore(spkTd, catTd.nextSibling);
+                for (const cell of Array.from(tr.cells)) cell.setAttribute("role", "gridcell");
 
                 // §8 — the row's grid separator came from the stylesheet's
                 // fixed warm-grey (#e8e5dc) and never saw the palette, so the
@@ -1107,7 +1145,7 @@ export class Visual implements IVisual {
                 }
 
                 // Tooltip on row hover
-                tr.style.cursor = "pointer";
+                tr.style.cursor = this.interactionsAllowed() ? "pointer" : "default";
                 const rowRef = row;
                 const rowMeasureNames = measureNames;
                 const rowMeasureFormats = measureFormat;
@@ -1127,6 +1165,19 @@ export class Visual implements IVisual {
                                 rowMeasureFormats[mi], rowMeasureFormatStrings[mi])
                         });
                     }
+                    for (let index = 0; index < textColNames.length; index++) {
+                        tooltipItems.push({ displayName: textColNames[index], value: rowRef.textValues[index] ?? "\u2014" });
+                    }
+                    tooltipItems.push(
+                        { displayName: "Period", value: spkCatLabels.length
+                            ? `${spkCatLabels[0]} – ${spkCatLabels[spkCatLabels.length - 1]}` : "\u2014" },
+                        { displayName: "Latest", value: lastSpkVal == null ? "\u2014"
+                            : formatModelNumber(lastSpkVal, sparklineMeasure.source.format, this.host.locale) },
+                        { displayName: "Latest category", value: bucketOrder[lastSpkIdx]?.label ?? "\u2014" },
+                        { displayName: "Prior mean", value: spkBaseline == null ? "\u2014"
+                            : formatModelNumber(spkBaseline, sparklineMeasure.source.format, this.host.locale) },
+                        { displayName: "Δ", value: deltaTd.textContent }
+                    );
                     this.tooltipService.show({
                         coordinates: [e.clientX, e.clientY],
                         isTouchEvent: false,
@@ -1140,10 +1191,32 @@ export class Visual implements IVisual {
 
                 // Cross-filtering on click
                 this.listen(tr, "click", (e: MouseEvent) => {
-                    if (rowRef.selectionId) {
-                        this.selectionManager.select(rowRef.selectionId, e.ctrlKey || e.metaKey);
+                    if (this.interactionsAllowed() && rowRef.selectionId) {
+                        this.selectionManager.select(rowRef.selectionId, e.ctrlKey || e.metaKey)
+                            .then(ids => this.applySelection(ids));
                     }
                     e.stopPropagation();
+                });
+                this.listen(tr, "keydown", (e: KeyboardEvent) => {
+                    if (!this.interactionsAllowed()) return;
+                    if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        if (rowRef.selectionId) this.selectionManager.select(rowRef.selectionId, e.ctrlKey || e.metaKey)
+                            .then(ids => this.applySelection(ids));
+                    } else if (e.key === "Escape") {
+                        e.preventDefault();
+                        this.selectionManager.clear().then(() => this.applySelection([]));
+                    } else if (["ArrowUp", "ArrowDown", "Home", "End"].includes(e.key)) {
+                        e.preventDefault();
+                        const index = this.selectionRows.findIndex(entry => entry.element === tr);
+                        const next = e.key === "Home" ? 0 : e.key === "End" ? this.selectionRows.length - 1
+                            : Math.max(0, Math.min(this.selectionRows.length - 1, index + (e.key === "ArrowDown" ? 1 : -1)));
+                        this.selectionRows[next]?.element.focus();
+                    } else if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
+                        e.preventDefault();
+                        const box = tr.getBoundingClientRect();
+                        if (rowRef.selectionId) this.selectionManager.showContextMenu(rowRef.selectionId, { x: box.x, y: box.y });
+                    }
                 });
 
                 tbody.appendChild(tr);
@@ -1151,6 +1224,7 @@ export class Visual implements IVisual {
 
             table.appendChild(tbody);
             this.container.appendChild(table);
+            this.applySelection();
 
             // Measure rendered typography, including pill padding, before
             // laying out sparks. Narrow reports scroll instead of hiding values.
@@ -1513,6 +1587,23 @@ export class Visual implements IVisual {
         element.addEventListener(type, listener, { signal: this.renderEvents.signal });
     }
 
+    private interactionsAllowed(): boolean {
+        return (this.host as typeof this.host & { allowInteractions?: boolean }).allowInteractions !== false;
+    }
+
+    private applySelection(ids: powerbi.extensibility.ISelectionId[] = this.selectionManager.getSelectionIds()): void {
+        if (this.disposed) return;
+        for (const row of this.selectionRows) {
+            const selected = ids.some(id => row.identity.equals(id as ISelectionId) || (id as ISelectionId).includes?.(row.identity));
+            row.element.setAttribute("aria-selected", String(selected));
+            const ink = this.isHighContrast
+                ? (this.host.colorPalette as any).foregroundSelected?.value ?? this.hcForeground
+                : row.element.style.color;
+            row.element.style.outline = selected ? `2px solid ${ink}` : "";
+            row.element.style.outlineOffset = "-2px";
+        }
+    }
+
     public destroy(): void {
         if (this.disposed) return;
         this.disposed = true;
@@ -1529,6 +1620,9 @@ export class Visual implements IVisual {
         if (this.contextMenuHandler) {
             this.target.removeEventListener("contextmenu", this.contextMenuHandler);
         }
+        this.target.removeEventListener("click", this.backgroundClickHandler);
+        this.selectionRows = [];
+        this.tooltipService.hide({ isTouchEvent: false, immediately: true });
         this.cornerSignature?.destroy();
         this.cornerSignature = null;
         while (this.container && this.container.firstChild) {
