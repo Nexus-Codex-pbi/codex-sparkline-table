@@ -1118,9 +1118,12 @@ export class Visual implements IVisual {
                     // a user-set colour / fx rule is honoured verbatim.
                     const rawSpk = this.sparklineColorHelper?.getColorForMeasure(instanceObjects, "sparklineColor")
                         ?? spkSettings.sparklineColor.value.value;
+                    const hasSparkColorOverride = instanceObjects?.sparklineSettings?.sparklineColor !== undefined
+                        || dataView.metadata?.objects?.sparklineSettings?.sparklineColor !== undefined;
                     const resolvedSpkColorHex = this.isHighContrast
                         ? this.hcForeground
-                        : (rawSpk === "#130064" ? (rowBandColor ?? readableInk(rawSpk, rowSurface)) : rawSpk);
+                        : (rawSpk === "#130064" && !hasSparkColorOverride
+                            ? (rowBandColor ?? readableInk(rawSpk, rowSurface)) : rawSpk);
                     const spkColorForRow = this.isHighContrast
                         ? resolvedSpkColorHex
                         : toRgba(resolvedSpkColorHex, spkTransparencyPct);
