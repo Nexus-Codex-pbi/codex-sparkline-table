@@ -60,6 +60,16 @@ function bounded(value: number, fallback: number, min: number, max: number): num
     return Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback;
 }
 
+function normalizedWidths(weights: number[]): number[] {
+    const largest = Math.max(...weights);
+    const total = weights.reduce((sum, weight) => sum + weight / largest, 0);
+    const shares = weights.map(weight => (weight / largest) / total * 100);
+    const floor = Math.min(6, 50 / weights.length);
+    const flexible = shares.map(share => Math.max(0, share - floor));
+    const flexibleTotal = flexible.reduce((sum, share) => sum + share, 0);
+    return flexible.map(share => floor + share / flexibleTotal * (100 - floor * weights.length));
+}
+
 function readableInk(preferred: string, surface: string): string {
     if (contrastRatio(preferred, surface) >= 4.6) return preferred;
     const best = contrastInk(surface, "#000000", "#ffffff");
@@ -685,14 +695,14 @@ export class Visual implements IVisual {
             for (let t = 0; t < textColCount; t++) defaultWidths.push(perValue);
             defaultWidths.push(deltaW);
 
-            let widths = defaultWidths;
+            let widths = normalizedWidths(defaultWidths);
             try {
                 const rawWidths = (dataView.metadata?.objects?.columnResize as { widths?: string } | undefined)?.widths;
                 if (typeof rawWidths === "string" && rawWidths) {
                     const parsed = JSON.parse(rawWidths);
                     if (Array.isArray(parsed) && parsed.length === defaultWidths.length
-                        && parsed.every((n) => typeof n === "number" && n > 0)) {
-                        widths = parsed as number[];
+                        && parsed.every((n) => typeof n === "number" && Number.isFinite(n) && n > 0)) {
+                        widths = normalizedWidths(parsed as number[]);
                     }
                 }
             } catch { /* bad persisted value — fall back to defaults */ }
@@ -715,6 +725,7 @@ export class Visual implements IVisual {
             const addTh = (text: string, className: string) => {
                 const th = document.createElement("th");
                 th.textContent = text;
+                th.title = text;
                 th.className = className;
                 th.style.backgroundColor = headerBg;
                 th.style.color = headerTextColor;
@@ -729,7 +740,7 @@ export class Visual implements IVisual {
                 // Scorecard-board header treatment (Neil 2026-07-15): muted
                 // uppercase micro-tracking — the "METRIC · NOW · Δ" eyebrow look.
                 th.style.textTransform = "uppercase";
-                th.style.letterSpacing = "0.08em";
+                th.style.letterSpacing = "0";
                 // §8 — the header rule's fixed #e0ddd4 / #d0cdc4 separator is a
                 // painted surface and must resolve from the palette in HC.
                 if (this.isHighContrast) {
@@ -770,6 +781,20 @@ export class Visual implements IVisual {
             // computed defaults next render. stopPropagation keeps the drag off
             // the header's sort/click + the row context menu.
             const liveWidths = widths.slice();
+            let minimumColumnWidths: number[] = [];
+            const fitTable = () => {
+                table.style.minWidth = Math.ceil(Math.max(0,
+                    ...minimumColumnWidths.map((minimum, index) => minimum * 100 / liveWidths[index])
+                )) + "px";
+            };
+            const persistWidths = () => {
+                const rounded = liveWidths.map(width => Math.round(width * 1000) / 1000);
+                rounded[rounded.length - 1] = Math.round((100 - rounded.slice(0, -1).reduce((sum, width) => sum + width, 0)) * 1000) / 1000;
+                this.host.persistProperties({
+                    merge: [{ objectName: "columnResize", selector: null as never,
+                        properties: { widths: JSON.stringify(rounded) } }]
+                });
+            };
             const headerThs = Array.from(headerRow.children) as HTMLElement[];
             for (let i = 0; i < headerThs.length - 1 && i < cols.length - 1; i++) {
                 const th = headerThs[i];
@@ -787,12 +812,15 @@ export class Visual implements IVisual {
                     const onMove = (me: MouseEvent) => {
                         const deltaPct = ((me.clientX - startX) / tableW) * 100;
                         let newA = wA + deltaPct;
-                        newA = Math.max(6, Math.min(wA + wB - 6, newA));
+                        const minA = Math.min((wA + wB) / 2, (minimumColumnWidths[i] ?? 1) / tableW * 100);
+                        const minB = Math.min((wA + wB) / 2, (minimumColumnWidths[i + 1] ?? 1) / tableW * 100);
+                        newA = Math.max(minA, Math.min(wA + wB - minB, newA));
                         const newB = (wA + wB) - newA;
                         liveWidths[i] = newA;
                         liveWidths[i + 1] = newB;
                         cols[i].style.width = newA + "%";
                         cols[i + 1].style.width = newB + "%";
+                        fitTable();
                     };
                     // §12 — detaching the document listeners is now a named
                     // operation the visual OWNS, so destroy() and the next
@@ -806,13 +834,7 @@ export class Visual implements IVisual {
                     };
                     const onUp = () => {
                         abandon();
-                        this.host.persistProperties({
-                            merge: [{
-                                objectName: "columnResize",
-                                selector: null as never,
-                                properties: { widths: JSON.stringify(liveWidths.map((w) => Math.round(w * 10) / 10)) }
-                            }]
-                        });
+                        persistWidths();
                     };
                     this.cancelDrag?.();   // one drag at a time
                     this.cancelDrag = abandon;
@@ -1129,6 +1151,26 @@ export class Visual implements IVisual {
 
             table.appendChild(tbody);
             this.container.appendChild(table);
+
+            // Measure rendered typography, including pill padding, before
+            // laying out sparks. Narrow reports scroll instead of hiding values.
+            const measureContext = document.createElement("canvas").getContext("2d");
+            minimumColumnWidths = headerThs.map((_header, index) => {
+                return Math.ceil(Math.max(...Array.from(table.rows).map(tableRow => {
+                    const cell = tableRow.cells[index];
+                    if (cell.classList.contains("sparkline-cell") && cell.tagName === "TD") return 120;
+                    const textElement = cell.querySelector("span") ?? cell;
+                    const style = getComputedStyle(textElement);
+                    if (measureContext) measureContext.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+                    const text = style.textTransform === "uppercase" ? textElement.textContent.toUpperCase() : textElement.textContent;
+                    const textWidth = measureContext?.measureText(text).width ?? text.length * fontSize;
+                    const cellStyle = getComputedStyle(cell);
+                    const padding = parseFloat(cellStyle.paddingLeft) + parseFloat(cellStyle.paddingRight)
+                        + (textElement !== cell ? parseFloat(style.paddingLeft) + parseFloat(style.paddingRight) : 0);
+                    return textWidth + padding + 4;
+                })));
+            });
+            fitTable();
 
             // 2nd pass — the table is now laid out, so each spark renders at its
             // cell's REAL width (the flex Trend column, as wide as the card
