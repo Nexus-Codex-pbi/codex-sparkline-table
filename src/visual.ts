@@ -325,11 +325,9 @@ export class Visual implements IVisual {
                 return;
             }
 
-            // Detect measure format (percentage, integer, decimal, badge)
+            // Display names never determine aggregation or status semantics.
             const measureFormat: string[] = tableMeasures.map(m => {
-                const name = (m.source.displayName || "").toLowerCase();
                 const fmt = m.source.format || "";
-                if (name.indexOf("score") >= 0 || name.indexOf("badge") >= 0) return "badge";
                 if (fmt.indexOf("%") >= 0) return "percent";
                 if (fmt.indexOf(".") >= 0) return "decimal";
                 return "integer";
@@ -428,12 +426,7 @@ export class Visual implements IVisual {
                 for (let m = 0; m < tableMeasures.length; m++) {
                     const v = tableMeasures[m].values[i] as number;
                     if (v != null && !isNaN(v)) {
-                        if (measureFormat[m] === "badge") {
-                            // Badge: take last non-null value (don't sum)
-                            row.measureValues[m] = v;
-                        } else {
-                            row.measureValues[m] += v;
-                        }
+                        row.measureValues[m] += v;
                         row.measureCounts[m]++;
                     }
                 }
@@ -965,35 +958,6 @@ export class Visual implements IVisual {
                         // render the same em dash the cell already uses for "no
                         // value" rather than asserting an observed 0.
                         td.textContent = "\u2014";
-                    } else if (fmt === "badge") {
-                        // Map score to badge text and colour
-                        const badgeMap: Record<number, [string, string, string]> = {
-                            1: ["\u2713 On track", "#005a4e", "#e0f5ef"],
-                            2: ["\u26A0 Watch", "#7a5600", "#fef3d6"],
-                            3: ["\u2717 Action needed", "#a30d1e", "#fde8ea"]
-                        };
-                        const badge = badgeMap[Math.round(num)];
-                        if (badge) {
-                            td.textContent = badge[0];
-                            if (this.isHighContrast) {
-                                // \u00A78: the badge's literal chrome (dark red on
-                                // pale pink) survived a white-on-black palette
-                                // untouched. Route it through the resolved
-                                // palette; the leading glyph already carries
-                                // the status without relying on hue.
-                                td.style.color = this.hcForeground;
-                                td.style.backgroundColor = this.hcBackground;
-                                td.style.border = `1px solid ${this.hcForeground}`;
-                            } else {
-                                td.style.color = badge[1];
-                                td.style.backgroundColor = badge[2];
-                            }
-                            td.style.borderRadius = "4px";
-                            td.style.textAlign = "center";
-                            td.style.fontWeight = "600";
-                        } else {
-                            td.textContent = "\u2014";
-                        }
                     } else {
                         td.textContent = this.formatMeasure(num, count, fmt, measureFormatString[m]);
                     }
@@ -1003,11 +967,9 @@ export class Visual implements IVisual {
                     // The FIRST measure column additionally honours the
                     // band-tint toggle above (D-16: fx rule / toggle-off
                     // still resolve to the flat colour untouched).
-                    if (fmt !== "badge") {
-                        td.style.color = (m === 0 && useValueBandTint)
-                            ? (rowBandColor as string)
-                            : resolvedMeasureTextColor;
-                    }
+                    td.style.color = (m === 0 && useValueBandTint)
+                        ? (rowBandColor as string)
+                        : resolvedMeasureTextColor;
                     tr.appendChild(td);
                 }
 

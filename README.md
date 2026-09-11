@@ -15,6 +15,11 @@ Repeated spark categories are summed into one bucket. Every row shares the same
 bucket positions. Missing readings break the line; genuine zeros remain.
 Spacing is ordinal, not proportional to elapsed time.
 
+Numeric measures are summed across delivered observations; percentage-formatted
+measures use the mean of observed values. Choose measures whose aggregation
+matches that contract. Names such as "Score" and "Badge" have no special meaning
+and do not change numeric values into status labels.
+
 Delta compares the latest observed reading with the mean of preceding observed
 readings, divided by the baseline's absolute magnitude. Missing or zero baselines
 have no percentage. Each row has its own vertical spark scale.
