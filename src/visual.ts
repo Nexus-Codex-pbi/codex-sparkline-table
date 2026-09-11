@@ -108,6 +108,14 @@ export class Visual implements IVisual {
 
     private lastUpdateOptions: VisualUpdateOptions | null = null;
 
+    /** Teardown for an in-flight column drag (NEXUS cycle-12 §12).
+     *  A drag's mousemove/mouseup listeners live on `document`, so they outlive
+     *  both the table they were created against and the visual itself: a
+     *  destroy mid-drag still let mouseup call persistProperties, and a
+     *  re-render mid-drag persisted the OLD width vector against the NEW column
+     *  shape. Non-null exactly while a drag is outstanding. */
+    private cancelDrag: (() => void) | null = null;
+
 
     constructor(options: VisualConstructorOptions) {
 
@@ -158,6 +166,11 @@ export class Visual implements IVisual {
     }
 
     public update(options: VisualUpdateOptions): void {
+        // §12 — this render replaces the colgroup and the resize handles an
+        // in-flight drag closed over, so that drag cannot be allowed to finish:
+        // its mouseup was persisting the OLD width vector against the NEW
+        // column shape (five widths for six columns).
+        this.cancelDrag?.();
         this.eventService.renderingStarted(options);
         this.lastUpdateOptions = options;
 
@@ -685,9 +698,18 @@ export class Visual implements IVisual {
                         cols[i].style.width = newA + "%";
                         cols[i + 1].style.width = newB + "%";
                     };
-                    const onUp = () => {
+                    // §12 — detaching the document listeners is now a named
+                    // operation the visual OWNS, so destroy() and the next
+                    // update() can both abandon the drag. Abandoning only
+                    // detaches; it never persists, because the width vector in
+                    // flight belongs to a table that no longer exists.
+                    const abandon = () => {
                         document.removeEventListener("mousemove", onMove);
                         document.removeEventListener("mouseup", onUp);
+                        if (this.cancelDrag === abandon) this.cancelDrag = null;
+                    };
+                    const onUp = () => {
+                        abandon();
                         this.host.persistProperties({
                             merge: [{
                                 objectName: "columnResize",
@@ -696,6 +718,8 @@ export class Visual implements IVisual {
                             }]
                         });
                     };
+                    this.cancelDrag?.();   // one drag at a time
+                    this.cancelDrag = abandon;
                     document.addEventListener("mousemove", onMove);
                     document.addEventListener("mouseup", onUp);
                 });
@@ -1179,6 +1203,12 @@ export class Visual implements IVisual {
         // Drop the in-flight licence check FIRST: its redraw callback replays
         // update() against a torn-down target otherwise (NEXUS lifecycle finding).
         this.licenseGate.dispose();
+        // §12 — cancel the document-level drag listeners this visual owns and
+        // drop the cached update options, so nothing can persist a width vector
+        // or replay a render against a torn-down target after teardown.
+        this.cancelDrag?.();
+        this.cancelDrag = null;
+        this.lastUpdateOptions = null;
         if (this.contextMenuHandler) {
             this.target.removeEventListener("contextmenu", this.contextMenuHandler);
         }
