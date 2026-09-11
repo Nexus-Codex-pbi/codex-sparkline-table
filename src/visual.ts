@@ -319,6 +319,11 @@ export class Visual implements IVisual {
             if (!sparklineMeasure && tableMeasures.length > 0) {
                 sparklineMeasure = tableMeasures[tableMeasures.length - 1];
             }
+            if (!sparklineMeasure) {
+                this.renderEmpty("Add a numeric Measure or Sparkline Value to draw the trend.");
+                this.eventService.renderingFinished(options);
+                return;
+            }
 
             // Detect measure format (percentage, integer, decimal, badge)
             const measureFormat: string[] = tableMeasures.map(m => {
@@ -454,7 +459,7 @@ export class Visual implements IVisual {
                 // Collect the sparkline reading into its date bucket. A null or
                 // NaN reading contributes NOTHING (§1): it is not coerced to
                 // zero, so "no reading" and "an observed zero" stay distinct.
-                const sv = sparklineMeasure!.values[i] as number;
+                const sv = sparklineMeasure.values[i] as number;
                 if (pos >= 0 && sv != null && !isNaN(sv)) {
                     row.sparkSums[pos] += sv;
                     row.sparkCounts[pos]++;
