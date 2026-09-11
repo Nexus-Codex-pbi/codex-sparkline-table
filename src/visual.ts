@@ -21,7 +21,7 @@ import { dataViewWildcard } from "powerbi-visuals-utils-dataviewutils";
 import { ColorHelper } from "powerbi-visuals-utils-colorutils";
 
 import { VisualFormattingSettingsModel, textAlignFor } from "./settings";
-import { toRgba } from "./shared/colorHelpers";
+import { toRgba, compositeOver, contrastInk, contrastRatio, surfaceTone } from "./shared/colorHelpers";
 import { formatModelNumber } from "./shared/numberFormat";
 import { applyHighContrast, HighContrastPalette } from "./shared/highContrast";
 
@@ -31,7 +31,7 @@ import { applyHighContrast, HighContrastPalette } from "./shared/highContrast";
 // target/goal data role, mirrors the 01-16 Callback Card precedent) +
 // corner-bracket card signature + row-hover elevation lift.
 import { Theme, band, bandColor, accentToken } from "./shared/bandEngine";
-import { surfaceTokens } from "./shared/designTokens";
+import { surfaceTokens, mix } from "./shared/designTokens";
 import { applyBorder } from "./shared/borderSettings";
 import { makeCornerBrackets, CardSignatureHandle } from "./shared/cardSignature";
 import { applyCardSignature } from "./shared/cardSignatureSettings";
@@ -60,16 +60,19 @@ function bounded(value: number, fallback: number, min: number, max: number): num
     return Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback;
 }
 
-/** Luminance-based theme pick (matches the pbiKpiCard v3 pilot's own
- * 0.55 threshold convention) — this visual's row/background colours are
- * plain ColorPickers (always opaque at their own default), so the
- * configured Row Color is a reliable theme signal. */
-function themeFor(hex: string): Theme {
-    const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})/i.exec(hex || "");
-    if (!m) return "light";
-    const r = parseInt(m[1], 16), g = parseInt(m[2], 16), b = parseInt(m[3], 16);
-    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-    return luminance < 0.5 ? "dark" : "light";
+function readableInk(preferred: string, surface: string): string {
+    if (contrastRatio(preferred, surface) >= 4.6) return preferred;
+    const best = contrastInk(surface, "#000000", "#ffffff");
+    for (let amount = 0.05; amount < 1; amount += 0.05) {
+        const candidate = mix(preferred, best, amount);
+        if (contrastRatio(candidate, surface) >= 4.6) return candidate;
+    }
+    return best;
+}
+
+function adaptiveInk(value: string, defaultValue: string, surface: string): string {
+    return value !== defaultValue ? value
+        : readableInk(contrastInk(surface, defaultValue, surfaceTokens("dark").text), surface);
 }
 
 /** One distinct Sparkline Category value — the series is built from these,
@@ -560,9 +563,11 @@ export class Visual implements IVisual {
             const rowUserSet = rowColorRaw !== "#ffffff";
             const bgPainted = (outerBgTransparencyPct ?? 100) < 100;
             const reportThemeBg = (this.host.colorPalette as any)?.background?.value as string | undefined;
-            const governingBg = bgPainted ? outerBgHex
-                : (rowUserSet ? rowColorRaw : (reportThemeBg ?? rowColorRaw));
-            const theme: Theme = themeFor(this.isHighContrast ? this.hcBackground : governingBg);
+            const visibleBackground = compositeOver(outerBgHex, outerBgTransparencyPct, reportThemeBg ?? "#ffffff");
+            const governingBg = !bgPainted && rowUserSet
+                ? compositeOver(rowColorRaw, tblSettings.rowTransparency.value ?? 0, visibleBackground)
+                : visibleBackground;
+            const theme: Theme = surfaceTone(this.isHighContrast ? this.hcBackground : governingBg);
             // D-16 adaptive sweep: untouched LIGHT-theme defaults swap to dark
             // tokens on a dark surface so nothing is invisible. HC wins; a
             // user-set colour is honoured verbatim.
@@ -572,7 +577,8 @@ export class Visual implements IVisual {
 
             // Retrieve settings values, applying high contrast overrides
             const headerBg = this.isHighContrast ? this.hcBackground : adapt(tblSettings.headerBackground.value.value, "#f8f6f0", dk.card);
-            const headerTextColor = this.isHighContrast ? this.hcForeground : adapt(tblSettings.headerTextColor.value.value, "#333333", dk.muted);
+            const headerTextColor = this.isHighContrast ? this.hcForeground
+                : adaptiveInk(tblSettings.headerTextColor.value.value, "#333333", headerBg);
             // Rows follow the surface: an explicit Row Color is honoured; else
             // the rows go dark on a dark background (so the whole table adapts,
             // not just the text) and stay white on light (D-06 parity).
@@ -583,8 +589,6 @@ export class Visual implements IVisual {
             const bandTintValueEnabled = tblSettings.bandTintValue?.value ?? true;
             const bandTintDotEnabled = spkSettings.bandTintDot?.value ?? true;
             const rowTransparencyPct = tblSettings.rowTransparency.value ?? 0;
-            const textColor = this.isHighContrast ? this.hcForeground : adapt(tblSettings.textColor.value.value, "#333333", dk.text);
-            const measureTextColor = this.isHighContrast ? this.hcForeground : adapt(tblSettings.measureTextColor.value.value, "#333333", dk.text);
             const fontSize = bounded(tblSettings.fontSize.value, 12, 8, 72);
             const rowHeight = bounded(tblSettings.rowHeight.value, 32, 12, 300);
             const showGrid = tblSettings.showGridLines.value;
@@ -640,8 +644,7 @@ export class Visual implements IVisual {
                 // Adaptive default (D-16 sentinel): untouched shared-Title navy
                 // swaps to the dark text token on dark surfaces.
                 const setTitle = titleFmt.titleColor?.value?.value || "#1a1a2e";
-                const adaptiveTitle = setTitle === "#1a1a2e" && theme === "dark"
-                    ? surfaceTokens("dark").text : setTitle;
+                const adaptiveTitle = adaptiveInk(setTitle, "#1a1a2e", visibleBackground);
                 titleEl.style.color = this.isHighContrast
                     ? this.hcForeground
                     : adaptiveTitle;
@@ -834,6 +837,12 @@ export class Visual implements IVisual {
                 // resolved above (hcBackground) and left untouched (never
                 // re-wrapped) to preserve the existing HC short-circuit.
                 const rowBaseColor = r % 2 === 1 ? altRowColor : rowColor;
+                const rowSurface = this.isHighContrast ? this.hcBackground
+                    : compositeOver(rowBaseColor, rowTransparencyPct, visibleBackground);
+                const textColor = this.isHighContrast ? this.hcForeground
+                    : adaptiveInk(tblSettings.textColor.value.value, "#333333", rowSurface);
+                const measureTextColor = this.isHighContrast ? this.hcForeground
+                    : adaptiveInk(tblSettings.measureTextColor.value.value, "#333333", rowSurface);
                 const rowRestingBg = this.isHighContrast
                     ? rowBaseColor
                     : toRgba(rowBaseColor, rowTransparencyPct);
@@ -847,9 +856,9 @@ export class Visual implements IVisual {
                 // the existing 0.15s CSS transition (within the 120-200ms
                 // glow-transition band) still governs the fade.
                 if (!this.isHighContrast) {
-                    const hoverBg = toRgba(surfaceTokens(theme).muted, 88);
-                    this.listen(tr, "mouseenter", () => { tr.style.backgroundColor = hoverBg; });
-                    this.listen(tr, "mouseleave", () => { tr.style.backgroundColor = rowRestingBg; });
+                    const hoverInk = readableInk(surfaceTokens(theme).muted, rowSurface);
+                    this.listen(tr, "mouseenter", () => { tr.style.boxShadow = `inset 0 0 0 1px ${hoverInk}`; });
+                    this.listen(tr, "mouseleave", () => { tr.style.boxShadow = ""; });
                 }
 
                 // v3 band engine (01-18 Task 3) — self-referential trend
@@ -914,10 +923,15 @@ export class Visual implements IVisual {
                 // per-instance object overrides via firstRawIndex (the
                 // aggregated-row gotcha from Plan 07 — never a loop counter).
                 const rowInstanceObjects = this.rowCatColumnForFx?.objects?.[row.firstRawIndex];
+                const hasMeasureTextColorOverride = !!(
+                    rowInstanceObjects && (rowInstanceObjects as Record<string, unknown>).tableSettings &&
+                    ((rowInstanceObjects as any).tableSettings.measureTextColor !== undefined)
+                );
                 const resolvedMeasureTextColor = this.isHighContrast
                     ? this.hcForeground
-                    : (this.measureTextColorHelper?.getColorForMeasure(rowInstanceObjects, "measureTextColor")
-                        ?? measureTextColor);
+                    : (hasMeasureTextColorOverride
+                        ? this.measureTextColorHelper?.getColorForMeasure(rowInstanceObjects, "measureTextColor") ?? measureTextColor
+                        : measureTextColor);
 
                 // v2 board look (01-18 Task 3) — "band-tinted value column":
                 // an active fx RULE on Measure Text Color (a more deliberate
@@ -925,10 +939,6 @@ export class Visual implements IVisual {
                 // Band-Tint Value Column toggle governs whether the FIRST
                 // measure column (the row's headline "value") resolves via
                 // rowBandColor instead of the flat Measure Text Color.
-                const hasMeasureTextColorOverride = !!(
-                    rowInstanceObjects && (rowInstanceObjects as Record<string, unknown>).tableSettings &&
-                    ((rowInstanceObjects as any).tableSettings.measureTextColor !== undefined)
-                );
                 const useValueBandTint = bandTintValueEnabled && !hasMeasureTextColorOverride
                     && !this.isHighContrast && rowBandColor !== null;
 
@@ -963,7 +973,7 @@ export class Visual implements IVisual {
                     // band-tint toggle above (D-16: fx rule / toggle-off
                     // still resolve to the flat colour untouched).
                     td.style.color = (m === 0 && useValueBandTint)
-                        ? (rowBandColor as string)
+                        ? readableInk(rowBandColor as string, rowSurface)
                         : resolvedMeasureTextColor;
                     tr.appendChild(td);
                 }
@@ -989,6 +999,7 @@ export class Visual implements IVisual {
                 // is then moved ahead of the measures below.
                 const deltaTd = document.createElement("td");
                 deltaTd.className = "measure-cell";
+                deltaTd.style.color = textColor;
                 if (deltaRatio != null) {
                     const deltaPct = deltaRatio * 100;
                     const up = deltaPct >= 0;
@@ -1006,7 +1017,9 @@ export class Visual implements IVisual {
                         pill.style.color = this.hcForeground;
                         pill.style.border = `1px solid ${this.hcForeground}`;
                     } else {
-                        pill.style.color = rowBandColor ?? textColor;
+                        pill.style.color = rowBandColor
+                            ? readableInk(rowBandColor, compositeOver(rowBandColor, 85, rowSurface))
+                            : textColor;
                         if (rowBandColor) pill.style.backgroundColor = toRgba(rowBandColor, 85);
                     }
                     deltaTd.appendChild(pill);
@@ -1048,7 +1061,7 @@ export class Visual implements IVisual {
                         ?? spkSettings.sparklineColor.value.value;
                     const resolvedSpkColorHex = this.isHighContrast
                         ? this.hcForeground
-                        : (rawSpk === "#130064" ? (rowBandColor ?? rawSpk) : rawSpk);
+                        : (rawSpk === "#130064" ? (rowBandColor ?? readableInk(rawSpk, rowSurface)) : rawSpk);
                     const spkColorForRow = this.isHighContrast
                         ? resolvedSpkColorHex
                         : toRgba(resolvedSpkColorHex, spkTransparencyPct);
@@ -1265,6 +1278,11 @@ export class Visual implements IVisual {
         // palette's foreground.
         if (this.isHighContrast) {
             empty.style.color = this.hcForeground;
+        } else {
+            const background = this.formattingSettings.background;
+            const surface = compositeOver(background.backgroundColor.value.value, background.transparency.value,
+                (this.host.colorPalette as any)?.background?.value ?? "#ffffff");
+            empty.style.color = adaptiveInk("#333333", "#333333", surface);
         }
         this.container.appendChild(empty);
         // §8 — the empty state's corner brackets were the one applyCardSignature
