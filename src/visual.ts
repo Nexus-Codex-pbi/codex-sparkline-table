@@ -22,6 +22,8 @@ import { ColorHelper } from "powerbi-visuals-utils-colorutils";
 
 import { VisualFormattingSettingsModel, textAlignFor } from "./settings";
 import { toRgba } from "./shared/colorHelpers";
+import { formatModelNumber, fractionDigitsFor } from "./shared/numberFormat";
+import { applyHighContrast, HighContrastPalette } from "./shared/highContrast";
 import { formatValue, CODEX_TOKENS } from "./utils";
 
 /** #657 — resolve the customer's Display Units / Decimal Places for a measure cell.
@@ -45,6 +47,21 @@ import { makeCornerBrackets, CardSignatureHandle } from "./shared/cardSignature"
 import { applyCardSignature } from "./shared/cardSignatureSettings";
 import { LicenseGate } from "./shared/licensing";
 
+/** Index of the last OBSERVED (non-gap) reading, or -1 when the series is
+ *  all gaps (NEXUS cycle-12 §1 — a gap is not a zero). */
+function lastObservedIndex(values: (number | null)[]): number {
+    for (let i = values.length - 1; i >= 0; i--) {
+        if (values[i] != null) return i;
+    }
+    return -1;
+}
+
+/** The last OBSERVED reading, or null when the series is all gaps. */
+function lastObserved(values: (number | null)[]): number | null {
+    const index = lastObservedIndex(values);
+    return index < 0 ? null : (values[index] as number);
+}
+
 /** Luminance-based theme pick (matches the pbiKpiCard v3 pilot's own
  * 0.55 threshold convention) — this visual's row/background colours are
  * plain ColorPickers (always opaque at their own default), so the
@@ -57,13 +74,29 @@ function themeFor(hex: string): Theme {
     return luminance < 0.5 ? "dark" : "light";
 }
 
+/** One distinct Sparkline Category value — the series is built from these,
+ *  not from raw row order (NEXUS cycle-12 §2). */
+interface SparkBucket {
+    /** identity key: the date's epoch ms, or the trimmed text */
+    key: string;
+    /** what the Trend header prints for this point */
+    label: string;
+    /** epoch ms when the host delivered a genuine Date, else null */
+    time: number | null;
+    /** raw row index of first encounter — the fallback order */
+    firstSeen: number;
+}
+
 /** Represents a single table row with its measure values and sparkline data */
 interface RowData {
     category: string;
     measureValues: number[];        // aggregated numeric values
-    measureCounts: number[];        // count of non-null values (for averaging)
-    textValues: string[];           // text column values (last non-null per row)
-    sparklineValues: number[];      // time-series values for the sparkline
+    measureCounts: number[];        // count of non-null values (0 = NO observed value)
+    textValues: string[];           // text column values (value at the latest bucket)
+    textBucketPos: number[];        // bucket position each textValue came from
+    sparkSums: number[];            // per-bucket sum of the sparkline measure
+    sparkCounts: number[];          // per-bucket count of non-null readings
+    sparklineValues: (number | null)[]; // one entry per bucket; null = a genuine GAP
     selectionId: ISelectionId | null;
     // Raw dataView row index at first encounter of this row's category —
     // used to resolve the Sparkline Colour fx rule against this row's own
@@ -136,15 +169,10 @@ export class Visual implements IVisual {
         this.tooltipService = options.host.tooltipService;
         this.localizationManager = options.host.createLocalizationManager();
 
-        // High contrast detection
-        const colorPalette = (options.host as any).colorPalette;
-        if (colorPalette) {
-            this.isHighContrast = !!colorPalette.isHighContrast;
-            if (this.isHighContrast) {
-                this.hcForeground = colorPalette.foreground.value;
-                this.hcBackground = colorPalette.background.value;
-            }
-        }
+        // High contrast detection — resolved through the shared HC rule (§8)
+        // so every painted surface in this visual reads from ONE palette
+        // resolution instead of each site re-deriving it.
+        this.readHighContrast((options.host as any).colorPalette);
 
         this.container = document.createElement("div");
         this.container.className = "sparkline-table-container";
@@ -183,14 +211,7 @@ export class Visual implements IVisual {
 
         try {
             // Refresh high contrast state each update
-            const colorPalette = (this.host as any).colorPalette;
-            if (colorPalette) {
-                this.isHighContrast = !!colorPalette.isHighContrast;
-                if (this.isHighContrast) {
-                    this.hcForeground = colorPalette.foreground.value;
-                    this.hcBackground = colorPalette.background.value;
-                }
-            }
+            this.readHighContrast((this.host as any).colorPalette);
 
             const dataView: DataView = options.dataViews && options.dataViews[0];
             this.formattingSettings = this.formattingSettingsService.populateFormattingSettingsModel(
@@ -308,14 +329,66 @@ export class Visual implements IVisual {
                 if (fmt.indexOf(".") >= 0) return "decimal";
                 return "integer";
             });
+            // The measure's OWN model format string, kept alongside the coarse
+            // kind above (NEXUS cycle-12 §3): the kind alone threw away the
+            // currency symbol and the required/optional decimal counts, so a
+            // `$#,0.00` measure rendered as `6234.6` and a `0.00%` measure —
+            // which Power BI stores as a FRACTION — rendered 100x too small.
+            const measureFormatString: string[] = tableMeasures.map(m => m.source.format || "");
 
             // Column display names
             const measureNames = tableMeasures.map(m => m.source.displayName);
             const rowCategoryName = rowCatColumn.source.displayName;
 
+            // ─── Sparkline time buckets (NEXUS cycle-12 §2) ──────────────
+            // ORDER AND IDENTITY CONTRACT. The series is built from the
+            // Sparkline Category's own distinct values — one bucket per
+            // value — instead of pushing one point per raw categorical row:
+            //   · two raw rows carrying the SAME date (an extra grouping
+            //     differentiating them) aggregate into ONE point, where
+            //     before they became two points and skewed the baseline;
+            //   · a row missing a date entirely leaves that bucket a GAP
+            //     for that row rather than shortening its series, so every
+            //     row's points line up on the same time axis.
+            // Buckets are ordered CHRONOLOGICALLY when the host delivers
+            // genuine Date values. A text Sparkline Category carries no
+            // chronology this renderer can read — inferring one from month
+            // names would be a heuristic, not a contract — so its delivered
+            // order is preserved verbatim, which is also what Power BI's own
+            // query sort provides.
+            // Same-date aggregation is SUM, matching this visual's existing
+            // (and only) aggregation for ordinary numeric measures.
+            const bucketByKey = new Map<string, SparkBucket>();
+            const bucketOrder: SparkBucket[] = [];
+            const rawBucketKey: string[] = new Array(numRows);
+            for (let i = 0; i < numRows; i++) {
+                const raw = sparklineCatColumn.values[i];
+                const time = raw instanceof Date ? raw.getTime() : null;
+                const key = time !== null ? "t:" + time : "s:" + String(raw ?? "").trim();
+                rawBucketKey[i] = key;
+                if (!bucketByKey.has(key)) {
+                    const bucket: SparkBucket = {
+                        key,
+                        label: this.categoryLabel(raw),
+                        time,
+                        firstSeen: i
+                    };
+                    bucketByKey.set(key, bucket);
+                    bucketOrder.push(bucket);
+                }
+            }
+            const chronological = bucketOrder.length > 0
+                && bucketOrder.every(b => b.time !== null && Number.isFinite(b.time));
+            if (chronological) {
+                bucketOrder.sort((a, b) => ((a.time as number) - (b.time as number)) || (a.firstSeen - b.firstSeen));
+            }
+            const bucketPos = new Map<string, number>();
+            bucketOrder.forEach((bucket, index) => bucketPos.set(bucket.key, index));
+            const bucketCount = bucketOrder.length;
+
             // Group data by row category
             // Each row in the categorical is a combination of (rowCategory, sparklineCategory)
-            // We need to group by rowCategory and collect sparkline values in order
+            // We group by rowCategory and place each reading in its date bucket
             const rowMap = new Map<string, RowData>();
             const rowOrder: string[] = [];
 
@@ -331,6 +404,9 @@ export class Visual implements IVisual {
                         measureValues: new Array(tableMeasures.length).fill(0),
                         measureCounts: new Array(tableMeasures.length).fill(0),
                         textValues: new Array(textColCount).fill(""),
+                        textBucketPos: new Array(textColCount).fill(-1),
+                        sparkSums: new Array(bucketCount).fill(0),
+                        sparkCounts: new Array(bucketCount).fill(0),
                         sparklineValues: [],
                         selectionId,
                         firstRawIndex: i
@@ -339,8 +415,11 @@ export class Visual implements IVisual {
                 }
 
                 const row = rowMap.get(rowCat)!;
+                const pos = bucketPos.get(rawBucketKey[i]) ?? -1;
 
-                // Accumulate numeric measures
+                // Accumulate numeric measures. measureCounts is the row's
+                // MISSINGNESS record (§1): a count of 0 means no value was
+                // ever observed, which is not the same fact as a sum of 0.
                 for (let m = 0; m < tableMeasures.length; m++) {
                     const v = tableMeasures[m].values[i] as number;
                     if (v != null && !isNaN(v)) {
@@ -354,44 +433,49 @@ export class Visual implements IVisual {
                     }
                 }
 
-                // Capture text column values (take last non-null per row — most recent)
-                // First from categories (grouping text columns), then from values (measure text columns)
+                // Capture text column values. "Most recent" means the value at
+                // the LATEST bucket in the order contract above (§2) — raw row
+                // order is not chronology. Ties within one bucket keep the last
+                // raw row, exactly as before.
                 let tIdx = 0;
-                for (let t = 0; t < textColsFromCategories.length; t++, tIdx++) {
-                    const raw = textColsFromCategories[t].values[i];
-                    if (raw != null && String(raw).trim() !== "") {
+                const takeText = (raw: powerbi.PrimitiveValue) => {
+                    if (raw != null && String(raw).trim() !== "" && pos >= row.textBucketPos[tIdx]) {
                         row.textValues[tIdx] = String(raw);
+                        row.textBucketPos[tIdx] = pos;
                     }
+                };
+                for (let t = 0; t < textColsFromCategories.length; t++, tIdx++) {
+                    takeText(textColsFromCategories[t].values[i]);
                 }
                 for (let t = 0; t < textColsFromValues.length; t++, tIdx++) {
-                    const raw = textColsFromValues[t].values[i];
-                    if (raw != null && String(raw).trim() !== "") {
-                        row.textValues[tIdx] = String(raw);
-                    }
+                    takeText(textColsFromValues[t].values[i]);
                 }
 
-                // Collect sparkline measure value at this time point
+                // Collect the sparkline reading into its date bucket. A null or
+                // NaN reading contributes NOTHING (§1): it is not coerced to
+                // zero, so "no reading" and "an observed zero" stay distinct.
                 const sv = sparklineMeasure!.values[i] as number;
-                row.sparklineValues.push(sv != null && !isNaN(sv) ? sv : 0);
+                if (pos >= 0 && sv != null && !isNaN(sv)) {
+                    row.sparkSums[pos] += sv;
+                    row.sparkCounts[pos]++;
+                }
             }
 
-            // Average percentage measures instead of leaving as sum
             for (const [, row] of rowMap) {
+                // Average percentage measures instead of leaving as sum
                 for (let m = 0; m < tableMeasures.length; m++) {
                     if (measureFormat[m] === "percent" && row.measureCounts[m] > 0) {
                         row.measureValues[m] /= row.measureCounts[m];
                     }
                 }
-            }
-
-            // Trim leading and trailing zeros from sparkline data to remove dead space
-            for (const [, row] of rowMap) {
-                const vals = row.sparklineValues;
-                let start = 0;
-                let end = vals.length - 1;
-                while (start < end && vals[start] === 0) start++;
-                while (end > start && vals[end] === 0) end--;
-                row.sparklineValues = vals.slice(start, end + 1);
+                // Resolve each bucket: an observed reading, or a genuine gap.
+                // The leading/trailing ZERO TRIM that used to run here is gone
+                // (§1) — it deleted real readings, so [10,20,0] plotted as the
+                // identical rising line as [0,10,20] and reported ▲ +100.0%
+                // when the series had in fact collapsed to zero.
+                row.sparklineValues = row.sparkSums.map(
+                    (sum, index) => (row.sparkCounts[index] > 0 ? sum : null)
+                );
             }
 
             // Build rows array preserving insertion order
@@ -421,9 +505,11 @@ export class Visual implements IVisual {
                         aVal = a.measureValues[mIdx] ?? 0;
                         bVal = b.measureValues[mIdx] ?? 0;
                     } else {
-                        // Sort by last sparkline value
-                        aVal = a.sparklineValues[a.sparklineValues.length - 1] ?? 0;
-                        bVal = b.sparklineValues[b.sparklineValues.length - 1] ?? 0;
+                        // Sort by the last OBSERVED sparkline value — a trailing
+                        // gap is not a zero (§1). A row with no reading at all
+                        // still needs a total order, so it sorts as 0.
+                        aVal = lastObserved(a.sparklineValues) ?? 0;
+                        bVal = lastObserved(b.sparklineValues) ?? 0;
                     }
                     return sortDir * ((aVal as number) - (bVal as number));
                 }
@@ -573,6 +659,15 @@ export class Visual implements IVisual {
             // Apply grid class
             this.container.className = "sparkline-table-container " + (showGrid ? "grid-lines" : "no-grid-lines");
 
+            // §8 — the resize handle's hover tint is the last painted surface
+            // that lives in the stylesheet; hand it the palette's foreground so
+            // no literal colour reaches the DOM in high contrast.
+            if (this.isHighContrast) {
+                this.container.style.setProperty("--codex-resize-hover", this.hcForeground);
+            } else {
+                this.container.style.removeProperty("--codex-resize-hover");
+            }
+
             // Build the table
             const table = document.createElement("table");
             table.style.tableLayout = "fixed";
@@ -639,6 +734,11 @@ export class Visual implements IVisual {
                 // uppercase micro-tracking — the "METRIC · NOW · Δ" eyebrow look.
                 th.style.textTransform = "uppercase";
                 th.style.letterSpacing = "0.08em";
+                // §8 — the header rule's fixed #e0ddd4 / #d0cdc4 separator is a
+                // painted surface and must resolve from the palette in HC.
+                if (this.isHighContrast) {
+                    th.style.borderBottomColor = this.hcForeground;
+                }
                 headerRow.appendChild(th);
             };
 
@@ -646,12 +746,12 @@ export class Visual implements IVisual {
             // Trend header states the timeframe (Neil 2026-07-15) — the first→
             // last distinct Sparkline Category label, e.g. "Trend · Jan–Jun".
             const trendBase = this.localizationManager.getDisplayName("Visual_Header_Trend") || "Trend";
-            const spkCatSeen = new Set<string>();
-            const spkCatLabels: string[] = [];
-            for (const v of sparklineCatColumn.values) {
-                const s = String(v ?? "").trim();
-                if (s && !spkCatSeen.has(s)) { spkCatSeen.add(s); spkCatLabels.push(s); }
-            }
+            // Labels come from the ORDERED buckets (§2), so the header states
+            // the period's true first→last endpoints rather than the first and
+            // last text the raw rows happened to mention. Date buckets carry a
+            // locale-formatted label: a native Date stringified raw produced a
+            // 1155px header string inside a 329px column.
+            const spkCatLabels: string[] = bucketOrder.map(b => b.label).filter(label => label !== "");
             const trendHeader = spkCatLabels.length > 1
                 ? `${trendBase} · ${spkCatLabels[0]}–${spkCatLabels[spkCatLabels.length - 1]}`
                 : trendBase;
@@ -729,7 +829,7 @@ export class Visual implements IVisual {
             const tbody = document.createElement("tbody");
             // Sparks are rendered in a 2nd pass (after the table lays out) so
             // each fills its cell's ACTUAL width — the flex Trend column.
-            const sparkQueue: Array<{ td: HTMLElement; values: number[]; color: string; band: string }> = [];
+            const sparkQueue: Array<{ td: HTMLElement; values: (number | null)[]; color: string; band: string | null }> = [];
 
             for (let r = 0; r < rows.length; r++) {
                 const row = rows[r];
@@ -767,12 +867,37 @@ export class Visual implements IVisual {
                 // Drives BOTH the value-column tint and the endpoint dot so
                 // they always agree (§2 "one colour token per visual").
                 const spkVals = row.sparklineValues;
-                const lastSpkVal = spkVals.length > 0 ? spkVals[spkVals.length - 1] : 0;
-                const priorSpkVals = spkVals.slice(0, -1);
+                const observedCount = spkVals.reduce<number>((n, v) => n + (v != null ? 1 : 0), 0);
+                const lastSpkIdx = lastObservedIndex(spkVals);
+                const lastSpkVal = lastSpkIdx < 0 ? null : (spkVals[lastSpkIdx] as number);
+                const priorSpkVals = (lastSpkIdx < 0 ? [] : spkVals.slice(0, lastSpkIdx))
+                    .filter((v): v is number => v != null);
                 const spkBaseline = priorSpkVals.length > 0
                     ? priorSpkVals.reduce((a, b) => a + b, 0) / priorSpkVals.length
-                    : lastSpkVal;
-                const rowBandColor = bandColor(band(lastSpkVal, spkBaseline), theme);
+                    : null;
+                // Relative change against the baseline's MAGNITUDE (§5). The
+                // old signed denominator reversed the reading on negative
+                // series: [-30,-20,-10] rises but scored ▼ −60.0%, and
+                // [-10,-20,-30] falls but scored a green ▲ +100.0%.
+                // No baseline, a zero baseline or a non-finite one yields NO
+                // percentage at all — the em dash the cell already uses for
+                // "no value" — never 0%, Infinity, NaN or −100% (§1/§5).
+                const deltaRatio = (lastSpkVal != null && spkBaseline != null
+                    && spkBaseline !== 0 && Number.isFinite(spkBaseline) && Number.isFinite(lastSpkVal))
+                    ? (lastSpkVal - spkBaseline) / Math.abs(spkBaseline)
+                    : null;
+                // band(1 + r, 1) is band(value, target)'s OWN law re-expressed
+                // on the relative change: for a positive baseline
+                // 1 + (v−t)/t === v/t, so every existing threshold and colour
+                // is reproduced EXACTLY (no default is changed); for a negative
+                // baseline it reads the true direction instead of taking the
+                // shared engine's "non-positive target ⇒ success" shortcut,
+                // which is why every falling negative series came out green.
+                // No computable change ⇒ no band at all: the row falls back to
+                // its flat, neutral colours rather than being tinted green.
+                const rowBandColor: string | null = deltaRatio == null
+                    ? null
+                    : bandColor(band(1 + deltaRatio, 1), theme);
 
                 // Category cell — row-label text treatment (TEXT-01):
                 // size 0 follows the shared Font Size; bold-off rests on
@@ -812,7 +937,7 @@ export class Visual implements IVisual {
                     ((rowInstanceObjects as any).tableSettings.measureTextColor !== undefined)
                 );
                 const useValueBandTint = bandTintValueEnabled && !hasMeasureTextColorOverride
-                    && !this.isHighContrast && spkVals.length > 1;
+                    && !this.isHighContrast && rowBandColor !== null;
 
                 // Numeric measure cells — value-column text treatment
                 // (TEXT-01): size 0 follows the shared Font Size; bold-off
@@ -827,8 +952,15 @@ export class Visual implements IVisual {
                     td.style.fontStyle = valueStyle;
                     td.style.textDecoration = valueDecoration;
                     const num = row.measureValues[m];
+                    const count = row.measureCounts[m];
                     const fmt = measureFormat[m];
-                    if (fmt === "badge") {
+                    if (count <= 0) {
+                        // No reading was ever observed for this measure on this
+                        // row (\u00A71). A total over missing values is not zero \u2014
+                        // render the same em dash the cell already uses for "no
+                        // value" rather than asserting an observed 0.
+                        td.textContent = "\u2014";
+                    } else if (fmt === "badge") {
                         // Map score to badge text and colour
                         const badgeMap: Record<number, [string, string, string]> = {
                             1: ["\u2713 On track", "#005a4e", "#e0f5ef"],
@@ -838,22 +970,27 @@ export class Visual implements IVisual {
                         const badge = badgeMap[Math.round(num)];
                         if (badge) {
                             td.textContent = badge[0];
-                            td.style.color = badge[1];
-                            td.style.backgroundColor = badge[2];
+                            if (this.isHighContrast) {
+                                // \u00A78: the badge's literal chrome (dark red on
+                                // pale pink) survived a white-on-black palette
+                                // untouched. Route it through the resolved
+                                // palette; the leading glyph already carries
+                                // the status without relying on hue.
+                                td.style.color = this.hcForeground;
+                                td.style.backgroundColor = this.hcBackground;
+                                td.style.border = `1px solid ${this.hcForeground}`;
+                            } else {
+                                td.style.color = badge[1];
+                                td.style.backgroundColor = badge[2];
+                            }
                             td.style.borderRadius = "4px";
                             td.style.textAlign = "center";
                             td.style.fontWeight = "600";
                         } else {
                             td.textContent = "\u2014";
                         }
-                    } else if (fmt === "percent") {
-                        td.textContent = num.toFixed(1) + "%";
                     } else {
-                        const ts = this.formattingSettings.tableCardSettings as any;
-                        const [u, dp] = resolveNumFormat(
-                            String(ts.displayUnits?.value?.value ?? "auto"),
-                            String(ts.decimalPlaces?.value?.value ?? "auto"), fmt);
-                        td.textContent = formatValue(num, u, dp);
+                        td.textContent = this.formatMeasure(num, count, fmt, measureFormatString[m]);
                     }
                     td.style.fontSize = valueSize + "px";
                     // Apply measure text color only for non-badge cells:
@@ -862,7 +999,9 @@ export class Visual implements IVisual {
                     // band-tint toggle above (D-16: fx rule / toggle-off
                     // still resolve to the flat colour untouched).
                     if (fmt !== "badge") {
-                        td.style.color = (m === 0 && useValueBandTint) ? rowBandColor : resolvedMeasureTextColor;
+                        td.style.color = (m === 0 && useValueBandTint)
+                            ? (rowBandColor as string)
+                            : resolvedMeasureTextColor;
                     }
                     tr.appendChild(td);
                 }
@@ -888,8 +1027,8 @@ export class Visual implements IVisual {
                 // is then moved ahead of the measures below.
                 const deltaTd = document.createElement("td");
                 deltaTd.className = "measure-cell";
-                if (spkVals.length > 1 && spkBaseline !== 0) {
-                    const deltaPct = ((lastSpkVal - spkBaseline) / spkBaseline) * 100;
+                if (deltaRatio != null) {
+                    const deltaPct = deltaRatio * 100;
                     const up = deltaPct >= 0;
                     const pill = document.createElement("span");
                     pill.textContent = `${up ? "▲" : "▼"} ${up ? "+" : "−"}${Math.abs(deltaPct).toFixed(1)}%`;
@@ -904,8 +1043,8 @@ export class Visual implements IVisual {
                         pill.style.color = this.hcForeground;
                         pill.style.border = `1px solid ${this.hcForeground}`;
                     } else {
-                        pill.style.color = rowBandColor;
-                        pill.style.backgroundColor = toRgba(rowBandColor, 85);
+                        pill.style.color = rowBandColor as string;
+                        pill.style.backgroundColor = toRgba(rowBandColor as string, 85);
                     }
                     deltaTd.appendChild(pill);
                 } else {
@@ -919,8 +1058,16 @@ export class Visual implements IVisual {
                 spkTd.className = "sparkline-cell";
                 spkTd.style.overflow = "hidden";
                 spkTd.style.padding = "2px 4px";
+                // §8 — the "no trend" em dash this cell can render is painted
+                // text and was taking the stylesheet's literal #333 ink in high
+                // contrast. Found by the literal-colour audit.
+                spkTd.style.color = this.isHighContrast ? this.hcForeground : textColor;
 
-                if (row.sparklineValues.length > 1) {
+                // Two OBSERVED readings make a trend; one point (or none) does
+                // not (§1). An all-gap series shows the "no value" em dash,
+                // while a genuine all-zero series is a real flat line and is
+                // now drawn as one instead of being trimmed out of existence.
+                if (observedCount > 1) {
                     // Per-row fx resolution (rule-evaluated if set, else
                     // static swatch) + per-region transparency (D-05),
                     // applied uniformly to line/area/bar (never Dot Color).
@@ -938,7 +1085,7 @@ export class Visual implements IVisual {
                         ?? spkSettings.sparklineColor.value.value;
                     const resolvedSpkColorHex = this.isHighContrast
                         ? this.hcForeground
-                        : (rawSpk === "#130064" ? rowBandColor : rawSpk);
+                        : (rawSpk === "#130064" ? (rowBandColor ?? rawSpk) : rawSpk);
                     const spkColorForRow = this.isHighContrast
                         ? resolvedSpkColorHex
                         : toRgba(resolvedSpkColorHex, spkTransparencyPct);
@@ -952,28 +1099,35 @@ export class Visual implements IVisual {
                 // Move the sparkline to the 2nd column (right after category).
                 tr.insertBefore(spkTd, catTd.nextSibling);
 
+                // §8 — the row's grid separator came from the stylesheet's
+                // fixed warm-grey (#e8e5dc) and never saw the palette, so the
+                // table kept light-theme rules in a high-contrast report.
+                if (this.isHighContrast) {
+                    for (const cell of Array.from(tr.cells)) {
+                        (cell as HTMLElement).style.borderBottomColor = this.hcForeground;
+                    }
+                }
+
                 // Tooltip on row hover
                 tr.style.cursor = "pointer";
                 const rowRef = row;
                 const rowMeasureNames = measureNames;
                 const rowMeasureFormats = measureFormat;
+                const rowMeasureFormatStrings = measureFormatString;
                 tr.addEventListener("mousemove", (e: MouseEvent) => {
                     const tooltipItems: VisualTooltipDataItem[] = [
                         { displayName: rowCategoryName, value: rowRef.category }
                     ];
                     for (let mi = 0; mi < rowMeasureNames.length; mi++) {
-                        const num = rowRef.measureValues[mi];
-                        const fmt = rowMeasureFormats[mi];
-                        let valStr: string;
-                        if (fmt === "percent") valStr = num.toFixed(1) + "%";
-                        else {
-                            const ts = this.formattingSettings.tableCardSettings as any;
-                            const [u, dp] = resolveNumFormat(
-                                String(ts.displayUnits?.value?.value ?? "auto"),
-                                String(ts.decimalPlaces?.value?.value ?? "auto"), fmt);
-                            valStr = formatValue(num, u, dp);
-                        }
-                        tooltipItems.push({ displayName: rowMeasureNames[mi], value: valStr });
+                        // Same number-rendering law as the cell (§1/§3) — the
+                        // tooltip previously carried its own copy and so
+                        // repeated every formatting defect verbatim.
+                        tooltipItems.push({
+                            displayName: rowMeasureNames[mi],
+                            value: this.formatMeasure(
+                                rowRef.measureValues[mi], rowRef.measureCounts[mi],
+                                rowMeasureFormats[mi], rowMeasureFormatStrings[mi])
+                        });
                     }
                     this.tooltipService.show({
                         coordinates: [e.clientX, e.clientY],
@@ -1052,6 +1206,77 @@ export class Visual implements IVisual {
         return bold ? "700" : restWeight;
     }
 
+    /** Resolve the host's high-contrast state through the shared HC rule (§8).
+     *  Identical outcome to the previous hand-rolled read — active only when
+     *  the palette says so, foreground/background taken from the palette — but
+     *  routed through the one helper the suite shares, so the badge, grid and
+     *  empty-state surfaces added below resolve from the same values. */
+    private readHighContrast(colorPalette: unknown): void {
+        const hc = applyHighContrast(colorPalette as HighContrastPalette, {
+            fallbackColor: "#000000",
+            fallbackBackground: "#ffffff"
+        });
+        this.isHighContrast = hc.active;
+        if (hc.active) {
+            this.hcForeground = hc.color;
+            this.hcBackground = hc.background;
+        }
+    }
+
+    /** The label a Sparkline Category value prints in the Trend header (§2).
+     *  A native Date was previously stringified raw — "Sat Aug 01 2026
+     *  00:00:00 GMT+1000 (…)" — generating a 1155px header string inside a
+     *  329px column. Rendered in the HOST's locale instead. */
+    private categoryLabel(raw: powerbi.PrimitiveValue): string {
+        if (raw instanceof Date) {
+            const locale = this.host?.locale;
+            try {
+                return raw.toLocaleDateString(locale || undefined);
+            } catch {
+                return raw.toLocaleDateString();
+            }
+        }
+        return String(raw ?? "").trim();
+    }
+
+    /** ONE number-rendering law for measure cells and their tooltips.
+     *
+     *  §1 — `count` is the row's missingness record. A count of 0 means no
+     *  reading was ever observed, which is NOT an observed zero, so it renders
+     *  the em dash the visual already uses for "no value".
+     *
+     *  §3 — when the customer has left BOTH Display Units and Decimal Places
+     *  at "auto" (i.e. has expressed no preference), the measure's own model
+     *  format and the host locale govern: a `0.00%` measure is a FRACTION and
+     *  must be multiplied by 100, and a `$#,0.00` measure keeps its symbol and
+     *  its two decimals. When either lever IS set the customer's explicit
+     *  units/precision win, exactly as they did before — that path is
+     *  untouched so every saved report using it renders identically. */
+    private formatMeasure(value: number, count: number, kind: string, modelFormat: string): string {
+        if (count <= 0) return "—";
+        const ts = this.formattingSettings.tableCardSettings as any;
+        const rawUnits = String(ts.displayUnits?.value?.value ?? "auto");
+        const rawDecimals = String(ts.decimalPlaces?.value?.value ?? "auto");
+        const explicit = (rawUnits && rawUnits !== "auto") || (rawDecimals && rawDecimals !== "auto");
+
+        if (!explicit) {
+            return formatModelNumber(value, modelFormat, this.host?.locale || undefined);
+        }
+
+        if (kind === "percent") {
+            // An explicit Decimal Places still governs the digit count, but the
+            // fraction→percent conversion belongs to the model format and is
+            // not optional — appending "%" to the raw fraction was the 100x
+            // understatement.
+            const explicitDp = rawDecimals !== "auto" ? parseInt(rawDecimals, 10) : NaN;
+            const dp = Number.isFinite(explicitDp) ? explicitDp : fractionDigitsFor(modelFormat).max;
+            return (value * 100).toFixed(dp) + "%";
+        }
+
+        const [u, dp] = resolveNumFormat(rawUnits, rawDecimals, kind);
+        return formatValue(value, u, dp);
+    }
+
     private renderEmpty(message: string): void {
         while (this.container.firstChild) {
             this.container.removeChild(this.container.firstChild);
@@ -1059,12 +1284,40 @@ export class Visual implements IVisual {
         const empty = document.createElement("div");
         empty.className = "empty-state";
         empty.textContent = message;
+        // §8 — the stylesheet pinned this to #999999, so the empty state stayed
+        // mid-grey on black in a high-contrast report instead of taking the
+        // palette's foreground.
+        if (this.isHighContrast) {
+            empty.style.color = this.hcForeground;
+        }
         this.container.appendChild(empty);
-        applyCardSignature(this.cornerSignature, this.formattingSettings?.cardSignature, { autoHex: "#8f8ab8", mirror: true, muted: true });
+        // §8 — the empty state's corner brackets were the one applyCardSignature
+        // call site that passed no high-contrast parameters, so they kept
+        // painting the brand violet on a high-contrast canvas. Found by the
+        // literal-colour audit; no NEXUS check covers this surface, so it is
+        // measured by probe-MINE-2.py instead.
+        //
+        // `muted` must be dropped under HC, not just paired with hcColor:
+        // shared/cardSignature.ts's styleBracket does
+        //     const color = opts.muted ? opts.mutedColor : bandHex;
+        // so a muted bracket DISCARDS the resolved colour and paints its own
+        // default #8f8ab8 — passing hcColor alone changed nothing (measured).
+        // Un-muting lets the palette colour through and drops the 0.4 opacity,
+        // which is the right reading for high contrast anyway; glow is pinned
+        // off there per the shared HC rule. Outside HC every argument is
+        // unchanged, so the ordinary empty state renders exactly as before.
+        applyCardSignature(this.cornerSignature, this.formattingSettings?.cardSignature, {
+            autoHex: "#8f8ab8",
+            hcActive: this.isHighContrast,
+            hcColor: this.hcForeground,
+            mirror: true,
+            muted: !this.isHighContrast,
+            glowMix: this.isHighContrast ? 0 : undefined
+        });
     }
 
     private renderSparkline(
-        data: number[],
+        data: (number | null)[],
         width: number,
         height: number,
         color: string,
@@ -1072,7 +1325,7 @@ export class Visual implements IVisual {
         strokeWidth: number,
         showDot: boolean,
         dotColor: string,
-        v3: { theme: Theme; hc: boolean; bandTint: boolean; bandColorHex: string }
+        v3: { theme: Theme; hc: boolean; bandTint: boolean; bandColorHex: string | null }
     ): SVGSVGElement {
         const padding = 2;
         const svgNs = "http://www.w3.org/2000/svg";
@@ -1083,8 +1336,11 @@ export class Visual implements IVisual {
         svg.setAttribute("preserveAspectRatio", "none");
         svg.classList.add("sparkline-svg");
 
-        const minVal = Math.min(...data);
-        const maxVal = Math.max(...data);
+        // §1 — the domain is taken over OBSERVED readings only; a gap must not
+        // drag the scale to zero the way the old null-becomes-zero coercion did.
+        const observed = data.filter((v): v is number => v != null);
+        const minVal = observed.length > 0 ? Math.min(...observed) : 0;
+        const maxVal = observed.length > 0 ? Math.max(...observed) : 0;
 
         const xScale = scaleLinear()
             .domain([0, data.length - 1])
@@ -1098,9 +1354,12 @@ export class Visual implements IVisual {
             // Bar chart sparkline
             const barWidth = Math.max(1, (width - padding * 2) / data.length - 1);
             for (let i = 0; i < data.length; i++) {
+                // A gap draws NO bar — not a zero-height bar sitting on the
+                // axis, which would read as an observed zero (§1).
+                if (data[i] == null) continue;
                 const rect = document.createElementNS(svgNs, "rect");
                 const x = xScale(i) - barWidth / 2;
-                const y = yScale(data[i]);
+                const y = yScale(data[i] as number);
                 const barHeight = height - padding - y;
                 rect.setAttribute("x", String(Math.max(padding, x)));
                 rect.setAttribute("y", String(y));
@@ -1116,10 +1375,13 @@ export class Visual implements IVisual {
             // spark grammar; the type control is retired). Bolder on dark so
             // the signal-coloured wash reads; softer on light. HC drops it.
             const isDark = v3.theme === "dark" && !v3.hc;
-            const areaGen = area<number>()
+            // .defined() — a missing reading BREAKS the line and the fill (§1).
+            // It is not interpolated across and it is not plotted at zero.
+            const areaGen = area<number | null>()
+                .defined(d => d != null)
                 .x((_d, i) => xScale(i))
                 .y0(height - padding)
-                .y1(d => yScale(d))
+                .y1(d => yScale(d as number))
                 .curve(curveMonotoneX);
             const areaPath = document.createElementNS(svgNs, "path");
             areaPath.setAttribute("d", areaGen(data) || "");
@@ -1131,9 +1393,10 @@ export class Visual implements IVisual {
             }
             svg.appendChild(areaPath);
 
-            const lineGen = line<number>()
+            const lineGen = line<number | null>()
+                .defined(d => d != null)
                 .x((_d, i) => xScale(i))
-                .y(d => yScale(d))
+                .y(d => yScale(d as number))
                 .curve(curveMonotoneX);
 
             const linePath = document.createElementNS(svgNs, "path");
@@ -1158,13 +1421,13 @@ export class Visual implements IVisual {
             // plain muted-hex tick is colour-only). Bar type has no line
             // to annotate, so whisker ticks are line/area-only, matching
             // the KPI Sparkline Card original.
-            if (!v3.hc && minVal !== maxVal) {
+            if (!v3.hc && observed.length > 0 && minVal !== maxVal) {
                 const whiskerColor = surfaceTokens(v3.theme).muted;
                 const minIdx = data.indexOf(minVal);
                 const maxIdx = data.indexOf(maxVal);
                 [minIdx, maxIdx].forEach((idx) => {
                     const cx = xScale(idx);
-                    const cy = yScale(data[idx]);
+                    const cy = yScale(data[idx] as number);
                     const tick = document.createElementNS(svgNs, "line");
                     tick.setAttribute("x1", String(cx));
                     tick.setAttribute("x2", String(cx));
@@ -1183,14 +1446,19 @@ export class Visual implements IVisual {
         // on and not high-contrast; otherwise the flat, per-row-fx-
         // resolved Dot Color exactly as it rendered before this plan
         // (D-16 — the toggle-off / HC paths are untouched).
-        if (showDot && data.length > 0) {
-            const lastIdx = data.length - 1;
+        // The endpoint dot marks the last OBSERVED reading (§1) — a trailing
+        // gap must not plant a dot on the axis at zero. With no band (a zero or
+        // absent baseline, §5) the dot falls back to the flat Dot Color rather
+        // than inheriting a colour the data does not support.
+        const dotIdx = lastObservedIndex(data);
+        if (showDot && dotIdx >= 0) {
+            const lastIdx = dotIdx;
             const resolvedDotColor = v3.hc
                 ? dotColor
-                : (v3.bandTint ? v3.bandColorHex : dotColor);
+                : (v3.bandTint ? (v3.bandColorHex ?? dotColor) : dotColor);
             const circle = document.createElementNS(svgNs, "circle");
             circle.setAttribute("cx", String(xScale(lastIdx)));
-            circle.setAttribute("cy", String(yScale(data[lastIdx])));
+            circle.setAttribute("cy", String(yScale(data[lastIdx] as number)));
             circle.setAttribute("r", String(Math.max(2, strokeWidth)));
             circle.setAttribute("fill", resolvedDotColor);
             svg.appendChild(circle);

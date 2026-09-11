@@ -134,6 +134,11 @@
     user-select: none;
     z-index: 3;
 }
+// The hover tint is a painted surface, so under high contrast it must come
+// from the palette rather than the brand violet (NEXUS cycle-12 §8). visual.ts
+// sets --codex-resize-hover to the palette foreground when the host reports
+// high contrast and leaves it unset otherwise, so the ordinary look is
+// unchanged.
 .col-resize-handle:hover {
-    background: rgba(124, 58, 237, 0.45);
+    background: var(--codex-resize-hover, rgba(124, 58, 237, 0.45));
 }
