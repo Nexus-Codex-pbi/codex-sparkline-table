@@ -105,7 +105,7 @@ export class Visual implements IVisual {
     private selectionManager: ISelectionManager;
     private tooltipService: ITooltipService;
     private localizationManager: ILocalizationManager;
-    private formattingSettings: VisualFormattingSettingsModel;
+    private formattingSettings: VisualFormattingSettingsModel = new VisualFormattingSettingsModel();
     private formattingSettingsService: FormattingSettingsService;
     private host: powerbi.extensibility.visual.IVisualHost;
     private isHighContrast: boolean = false;
@@ -142,6 +142,8 @@ export class Visual implements IVisual {
      *  re-render mid-drag persisted the OLD width vector against the NEW column
      *  shape. Non-null exactly while a drag is outstanding. */
     private cancelDrag: (() => void) | null = null;
+    private disposed = false;
+    private renderEvents = new AbortController();
 
 
     constructor(options: VisualConstructorOptions) {
@@ -188,6 +190,9 @@ export class Visual implements IVisual {
     }
 
     public update(options: VisualUpdateOptions): void {
+        if (this.disposed) return;
+        this.renderEvents.abort();
+        this.renderEvents = new AbortController();
         // §12 — this render replaces the colgroup and the resize handles an
         // in-flight drag closed over, so that drag cannot be allowed to finish:
         // its mouseup was persisting the OLD width vector against the NEW
@@ -765,7 +770,7 @@ export class Visual implements IVisual {
                 const handle = document.createElement("div");
                 handle.className = "col-resize-handle";
                 th.appendChild(handle);
-                handle.addEventListener("mousedown", (e: MouseEvent) => {
+                this.listen(handle, "mousedown", (e: MouseEvent) => {
                     e.preventDefault();
                     e.stopPropagation();
                     const startX = e.clientX;
@@ -839,8 +844,8 @@ export class Visual implements IVisual {
                 // glow-transition band) still governs the fade.
                 if (!this.isHighContrast) {
                     const hoverBg = toRgba(surfaceTokens(theme).muted, 88);
-                    tr.addEventListener("mouseenter", () => { tr.style.backgroundColor = hoverBg; });
-                    tr.addEventListener("mouseleave", () => { tr.style.backgroundColor = rowRestingBg; });
+                    this.listen(tr, "mouseenter", () => { tr.style.backgroundColor = hoverBg; });
+                    this.listen(tr, "mouseleave", () => { tr.style.backgroundColor = rowRestingBg; });
                 }
 
                 // v3 band engine (01-18 Task 3) — self-referential trend
@@ -1068,7 +1073,7 @@ export class Visual implements IVisual {
                 const rowMeasureNames = measureNames;
                 const rowMeasureFormats = measureFormat;
                 const rowMeasureFormatStrings = measureFormatString;
-                tr.addEventListener("mousemove", (e: MouseEvent) => {
+                this.listen(tr, "mousemove", (e: MouseEvent) => {
                     const tooltipItems: VisualTooltipDataItem[] = [
                         { displayName: rowCategoryName, value: rowRef.category }
                     ];
@@ -1090,12 +1095,12 @@ export class Visual implements IVisual {
                         identities: rowRef.selectionId ? [rowRef.selectionId] : []
                     });
                 });
-                tr.addEventListener("mouseleave", () => {
+                this.listen(tr, "mouseleave", () => {
                     this.tooltipService.hide({ isTouchEvent: false, immediately: false });
                 });
 
                 // Cross-filtering on click
-                tr.addEventListener("click", (e: MouseEvent) => {
+                this.listen(tr, "click", (e: MouseEvent) => {
                     if (rowRef.selectionId) {
                         this.selectionManager.select(rowRef.selectionId, e.ctrlKey || e.metaKey);
                     }
@@ -1432,7 +1437,16 @@ export class Visual implements IVisual {
         return svg;
     }
 
+    private listen<K extends keyof HTMLElementEventMap>(
+        element: HTMLElement, type: K, listener: (event: HTMLElementEventMap[K]) => void
+    ): void {
+        element.addEventListener(type, listener, { signal: this.renderEvents.signal });
+    }
+
     public destroy(): void {
+        if (this.disposed) return;
+        this.disposed = true;
+        this.renderEvents.abort();
         // Drop the in-flight licence check FIRST: its redraw callback replays
         // update() against a torn-down target otherwise (NEXUS lifecycle finding).
         this.licenseGate.dispose();
@@ -1450,6 +1464,7 @@ export class Visual implements IVisual {
         while (this.container && this.container.firstChild) {
             this.container.removeChild(this.container.firstChild);
         }
+        this.container?.remove();
         this.container = null;
         this.target = null;
     }
