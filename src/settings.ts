@@ -326,7 +326,7 @@ class SortCardSettings extends FormattingSettingsCard {
     sortColumn = new formattingSettings.NumUpDown({
         name: "sortColumn",
         displayName: "Sort Column Index",
-        description: "0-based column index to sort by",
+        description: "0: category; 1..N: measures; N+1: trend; N+2 onward: text columns",
         value: 0
     });
 

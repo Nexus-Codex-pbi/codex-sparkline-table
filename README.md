@@ -19,6 +19,10 @@ Numeric measures are summed across delivered observations; percentage-formatted
 measures use the mean of observed values. Choose measures whose aggregation
 matches that contract. Names such as "Score" and "Badge" have no special meaning
 and do not change numeric values into status labels.
+Only finite numeric readings contribute to totals and trends. Missing/invalid
+readings are not zeros. Text uses the latest bucket, including an empty string
+or a missing value (shown as a dash); ties take the last delivered raw row.
+Category grouping preserves value types and whitespace.
 
 Delta compares the latest observed reading with the mean of preceding observed
 readings, divided by the baseline's absolute magnitude. Missing or zero baselines
@@ -45,7 +49,9 @@ Display Units or Decimal Places supplies an explicit override.
 
 Sort Column Index uses the legacy data indexing: 0 is Row Category,
 1 through the numeric measure count are Measures, and the next index is
-the latest observed spark value. Sort Direction is Ascending or Descending.
+the latest observed spark value; subsequent indices address Text Columns.
+Sort Direction is Ascending or Descending. Missing values sort last in either
+direction; ties retain source order.
 
 ## Interaction
 

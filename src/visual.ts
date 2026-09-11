@@ -52,6 +52,10 @@ function lastObserved(values: (number | null)[]): number | null {
     return index < 0 ? null : (values[index] as number);
 }
 
+function categoryKey(value: powerbi.PrimitiveValue): string {
+    return value instanceof Date ? "date:" + value.getTime() : typeof value + ":" + String(value);
+}
+
 /** Luminance-based theme pick (matches the pbiKpiCard v3 pilot's own
  * 0.55 threshold convention) — this visual's row/background colours are
  * plain ColorPickers (always opaque at their own default), so the
@@ -82,7 +86,7 @@ interface RowData {
     category: string;
     measureValues: number[];        // aggregated numeric values
     measureCounts: number[];        // count of non-null values (0 = NO observed value)
-    textValues: string[];           // text column values (value at the latest bucket)
+    textValues: (string | null)[];  // text column values (value at the latest bucket)
     textBucketPos: number[];        // bucket position each textValue came from
     sparkSums: number[];            // per-bucket sum of the sparkline measure
     sparkCounts: number[];          // per-bucket count of non-null readings
@@ -357,7 +361,7 @@ export class Visual implements IVisual {
             for (let i = 0; i < numRows; i++) {
                 const raw = sparklineCatColumn.values[i];
                 const time = raw instanceof Date ? raw.getTime() : null;
-                const key = time !== null ? "t:" + time : "s:" + String(raw ?? "").trim();
+                const key = categoryKey(raw);
                 rawBucketKey[i] = key;
                 if (!bucketByKey.has(key)) {
                     const bucket: SparkBucket = {
@@ -387,16 +391,17 @@ export class Visual implements IVisual {
 
             for (let i = 0; i < numRows; i++) {
                 const rowCat = String(rowCatColumn.values[i] ?? "");
+                const rowKey = categoryKey(rowCatColumn.values[i]);
 
-                if (!rowMap.has(rowCat)) {
+                if (!rowMap.has(rowKey)) {
                     const selectionId = this.host.createSelectionIdBuilder()
                         .withCategory(rowCatColumn, i)
                         .createSelectionId();
-                    rowMap.set(rowCat, {
+                    rowMap.set(rowKey, {
                         category: rowCat,
                         measureValues: new Array(tableMeasures.length).fill(0),
                         measureCounts: new Array(tableMeasures.length).fill(0),
-                        textValues: new Array(textColCount).fill(""),
+                        textValues: new Array(textColCount).fill(null),
                         textBucketPos: new Array(textColCount).fill(-1),
                         sparkSums: new Array(bucketCount).fill(0),
                         sparkCounts: new Array(bucketCount).fill(0),
@@ -404,10 +409,10 @@ export class Visual implements IVisual {
                         selectionId,
                         firstRawIndex: i
                     });
-                    rowOrder.push(rowCat);
+                    rowOrder.push(rowKey);
                 }
 
-                const row = rowMap.get(rowCat)!;
+                const row = rowMap.get(rowKey)!;
                 const pos = bucketPos.get(rawBucketKey[i]) ?? -1;
 
                 // Accumulate numeric measures. measureCounts is the row's
@@ -415,7 +420,7 @@ export class Visual implements IVisual {
                 // ever observed, which is not the same fact as a sum of 0.
                 for (let m = 0; m < tableMeasures.length; m++) {
                     const v = tableMeasures[m].values[i] as number;
-                    if (v != null && !isNaN(v)) {
+                    if (typeof v === "number" && Number.isFinite(v)) {
                         row.measureValues[m] += v;
                         row.measureCounts[m]++;
                     }
@@ -427,8 +432,8 @@ export class Visual implements IVisual {
                 // raw row, exactly as before.
                 let tIdx = 0;
                 const takeText = (raw: powerbi.PrimitiveValue) => {
-                    if (raw != null && String(raw).trim() !== "" && pos >= row.textBucketPos[tIdx]) {
-                        row.textValues[tIdx] = String(raw);
+                    if (pos >= row.textBucketPos[tIdx]) {
+                        row.textValues[tIdx] = raw == null ? null : String(raw);
                         row.textBucketPos[tIdx] = pos;
                     }
                 };
@@ -443,7 +448,7 @@ export class Visual implements IVisual {
                 // NaN reading contributes NOTHING (§1): it is not coerced to
                 // zero, so "no reading" and "an observed zero" stay distinct.
                 const sv = sparklineMeasure.values[i] as number;
-                if (pos >= 0 && sv != null && !isNaN(sv)) {
+                if (pos >= 0 && typeof sv === "number" && Number.isFinite(sv)) {
                     row.sparkSums[pos] += sv;
                     row.sparkCounts[pos]++;
                 }
@@ -474,33 +479,24 @@ export class Visual implements IVisual {
             const spkSettings = this.formattingSettings.sparklineCardSettings;
             const sortSettings = this.formattingSettings.sortCardSettings;
 
-            const sortCol = sortSettings.sortColumn.value;
+            const sortCol = Math.max(0, Math.trunc(sortSettings.sortColumn.value || 0));
             const sortDir = (sortSettings.sortDirection.value.value as string) === "desc" ? -1 : 1;
 
-            rows.sort((a, b) => {
-                let aVal: string | number;
-                let bVal: string | number;
-
-                if (sortCol === 0) {
-                    // Sort by category name
-                    aVal = a.category.toLowerCase();
-                    bVal = b.category.toLowerCase();
-                    return sortDir * (aVal < bVal ? -1 : aVal > bVal ? 1 : 0);
-                } else {
-                    // Sort by measure value (1-indexed after category column)
-                    const mIdx = sortCol - 1;
-                    if (mIdx < tableMeasures.length) {
-                        aVal = a.measureValues[mIdx] ?? 0;
-                        bVal = b.measureValues[mIdx] ?? 0;
-                    } else {
-                        // Sort by the last OBSERVED sparkline value — a trailing
-                        // gap is not a zero (§1). A row with no reading at all
-                        // still needs a total order, so it sorts as 0.
-                        aVal = lastObserved(a.sparklineValues) ?? 0;
-                        bVal = lastObserved(b.sparklineValues) ?? 0;
-                    }
-                    return sortDir * ((aVal as number) - (bVal as number));
+            const sortValue = (row: RowData): string | number | null => {
+                if (sortCol === 0) return row.category.toLowerCase();
+                if (sortCol <= tableMeasures.length) {
+                    const index = sortCol - 1;
+                    return row.measureCounts[index] > 0 ? row.measureValues[index] : null;
                 }
+                if (sortCol === tableMeasures.length + 1) return lastObserved(row.sparklineValues);
+                return row.textValues[sortCol - tableMeasures.length - 2]?.toLowerCase() ?? null;
+            };
+            rows.sort((a, b) => {
+                const aVal = sortValue(a), bVal = sortValue(b);
+                if (aVal == null || bVal == null) {
+                    return aVal == null && bVal == null ? a.firstRawIndex - b.firstRawIndex : aVal == null ? 1 : -1;
+                }
+                return sortDir * (aVal < bVal ? -1 : aVal > bVal ? 1 : 0) || a.firstRawIndex - b.firstRawIndex;
             });
 
             // ─── Conditional formatting (fx) wiring — Sparkline Colour (TRANS-04) ──
@@ -968,7 +964,7 @@ export class Visual implements IVisual {
                 for (let t = 0; t < textColCount; t++) {
                     const td = document.createElement("td");
                     td.className = "category-cell";
-                    td.textContent = row.textValues[t] || "\u2014";
+                    td.textContent = row.textValues[t] ?? "\u2014";
                     td.style.fontSize = rowLabelSize + "px";
                     td.style.fontFamily = rowLabelFamily;
                     td.style.fontWeight = rowLabelWeight;
@@ -1201,7 +1197,7 @@ export class Visual implements IVisual {
                 return raw.toLocaleDateString();
             }
         }
-        return String(raw ?? "").trim();
+        return String(raw ?? "");
     }
 
     /** ONE number-rendering law for measure cells and their tooltips.
