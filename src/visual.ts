@@ -628,7 +628,7 @@ export class Visual implements IVisual {
 
             const headerFamily = tblSettings.headerFontFamily?.value || defaultFamily;
             const headerSize = (tblSettings.headerFontSize?.value || 0) > 0 ? tblSettings.headerFontSize.value : fontSize;
-            const headerWeight = this.weightFor(tblSettings.headerBold?.value, "600");
+            const headerWeight = this.weightFor(tblSettings.headerBold?.value, "400");
             const headerStyle = tblSettings.headerItalic?.value ? "italic" : "normal";
             const headerDecoration = tblSettings.headerUnderline?.value ? "underline" : "none";
 
@@ -1164,12 +1164,19 @@ export class Visual implements IVisual {
             // allows). This is what makes the trend fill the card without any
             // manual width control (Neil 2026-07-15).
             for (const q of sparkQueue) {
-                const w = Math.max(40, q.td.clientWidth - 8);
+                const savedWidth = dataView.metadata?.objects?.sparklineSettings?.sparklineWidth;
+                const availableWidth = Math.max(4, q.td.clientWidth - 8);
+                const w = typeof savedWidth === "number" && savedWidth > 0
+                    ? Math.min(availableWidth, savedWidth) : availableWidth;
                 const svg = this.renderSparkline(
                     q.values, w, spkHeight, q.color, spkType,
                     lineWidth, showDot, dotColor,
                     { theme, hc: this.isHighContrast, bandTint: bandTintDotEnabled, bandColorHex: q.band }
                 );
+                if (typeof savedWidth === "number" && savedWidth > 0) {
+                    svg.style.width = w + "px";
+                    svg.style.margin = "0 auto";
+                }
                 q.td.appendChild(svg);
             }
 
@@ -1382,21 +1389,19 @@ export class Visual implements IVisual {
             const isDark = v3.theme === "dark" && !v3.hc;
             // .defined() — a missing reading BREAKS the line and the fill (§1).
             // It is not interpolated across and it is not plotted at zero.
-            const areaGen = area<number | null>()
-                .defined(d => d != null)
-                .x((_d, i) => xScale(i))
-                .y0(height - padding)
-                .y1(d => yScale(d as number))
-                .curve(curveMonotoneX);
-            const areaPath = document.createElementNS(svgNs, "path");
-            areaPath.setAttribute("d", areaGen(data) || "");
-            if (v3.hc) {
-                areaPath.setAttribute("fill", "none");
-            } else {
-                areaPath.setAttribute("fill", color);
-                areaPath.setAttribute("fill-opacity", isDark ? "0.30" : "0.15");
+            if (type === "area") {
+                const areaGen = area<number | null>()
+                    .defined(d => d != null)
+                    .x((_d, i) => xScale(i))
+                    .y0(height - padding)
+                    .y1(d => yScale(d as number))
+                    .curve(curveMonotoneX);
+                const areaPath = document.createElementNS(svgNs, "path");
+                areaPath.setAttribute("d", areaGen(data) || "");
+                areaPath.setAttribute("fill", v3.hc ? "none" : color);
+                if (!v3.hc) areaPath.setAttribute("fill-opacity", isDark ? "0.30" : "0.15");
+                svg.appendChild(areaPath);
             }
-            svg.appendChild(areaPath);
 
             const lineGen = line<number | null>()
                 .defined(d => d != null)

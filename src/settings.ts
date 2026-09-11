@@ -26,6 +26,11 @@ const ConstantOrRule = powerbi.VisualEnumerationInstanceKinds.ConstantOrRule;
 // on old saved reports (D-06).
 const FONT_STACK = "Segoe UI, Tahoma, Geneva, Verdana, sans-serif";
 
+function persistedOnly(slice: FormattingSettingsSlice): FormattingSettingsSlice {
+    slice.visible = false;
+    return slice;
+}
+
 class TableCardSettings extends FormattingSettingsCard {
     headerBackground = new formattingSettings.ColorPicker({
         name: "headerBackground",
@@ -204,7 +209,12 @@ class TableCardSettings extends FormattingSettingsCard {
         this.rowHeight,
         this.showGridLines,
         this.displayUnits,
-        this.decimalPlaces
+        this.decimalPlaces,
+        ...[
+            this.headerBackground, this.headerTextColor, this.alternateRowColor,
+            this.rowTransparency, this.measureTextColor, this.bandTintValue,
+            this.rowLabelFont, this.valueFont, this.headerFont
+        ].map(persistedOnly)
     ];
 }
 
@@ -300,7 +310,11 @@ class SparklineCardSettings extends FormattingSettingsCard {
     slices: Array<FormattingSettingsSlice> = [
         this.sparklineColor,
         this.showDot,
-        this.lineWidth
+        this.lineWidth,
+        ...[
+            this.sparklineWidth, this.sparklineHeight, this.sparklineTransparency,
+            this.sparklineType, this.dotColor, this.bandTintDot
+        ].map(persistedOnly)
     ];
 }
 
