@@ -251,7 +251,7 @@ export class Visual implements IVisual {
             const outerBgHex = background.backgroundColor.value?.value ?? "#ffffff";
             const outerBgTransparencyPct = background.transparency.value ?? 100;
             this.container.style.backgroundColor = this.isHighContrast
-                ? ""
+                ? this.hcBackground
                 : toRgba(outerBgHex, outerBgTransparencyPct);
 
             // Clear previous content
@@ -1408,7 +1408,7 @@ export class Visual implements IVisual {
                 rect.setAttribute("width", String(barWidth));
                 rect.setAttribute("height", String(Math.max(0, barHeight)));
                 rect.setAttribute("fill", color);
-                rect.setAttribute("fill-opacity", "0.7");
+                rect.setAttribute("fill-opacity", v3.hc ? "1" : "0.7");
                 svg.appendChild(rect);
             }
         } else {
