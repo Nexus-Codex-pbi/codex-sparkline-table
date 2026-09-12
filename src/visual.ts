@@ -1474,8 +1474,21 @@ export class Visual implements IVisual {
             empty.style.color = this.hcForeground;
         } else {
             const background = this.formattingSettings.background;
-            const surface = compositeOver(background.backgroundColor.value.value, background.transparency.value,
-                (this.host.colorPalette as any)?.background?.value ?? "#ffffff");
+            const behind = (this.host.colorPalette as any)?.background?.value ?? "#ffffff";
+            let surface = compositeOver(background.backgroundColor.value.value, background.transparency.value, behind);
+            // The empty state resolved the Codex card only in update() — a forced
+            // Dark/Light stayed on the user's Background here (#819, left open by
+            // the Sparkline Table executor). Same resolver, same rule: the mode
+            // owns the surface and the ink is judged against it.
+            const codex = resolveCodexTheme(this.formattingSettings.codexTheme, {
+                hcActive: false, autoTheme: surfaceTone(surface),
+                autoBgHex: background.backgroundColor.value.value,
+                autoTransparencyPct: background.transparency.value, behindHex: behind,
+            });
+            if (codex.mode !== "auto") {
+                surface = codex.surfaceHex;
+                this.container.style.backgroundColor = toRgba(codex.bgHex, codex.transparencyPct);
+            }
             empty.style.color = adaptiveInk("#333333", "#333333", surface);
         }
         this.container.appendChild(empty);
