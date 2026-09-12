@@ -35,7 +35,7 @@ import { surfaceTokens, mix } from "./shared/designTokens";
 import { applyBorder } from "./shared/borderSettings";
 import { makeCornerBrackets, CardSignatureHandle } from "./shared/cardSignature";
 import { applyCardSignature } from "./shared/cardSignatureSettings";
-import { resolveCodexTheme, neonColorFor, neonShadow, neonFilter } from "./shared/codexThemeSettings";
+import { resolveCodexTheme, neonColorFor, neonShadow, neonFilter, flareHexFor } from "./shared/codexThemeSettings";
 import { LicenseGate } from "./shared/licensing";
 
 /** Index of the last OBSERVED (non-gap) reading, or -1 when the series is
@@ -1350,6 +1350,7 @@ export class Visual implements IVisual {
                 // rule), and its existing dark-only glow budget becomes the
                 // card's Glow Strength.
                 autoHex: neonColorFor(accentToken(theme), codex),
+                flareHex: flareHexFor(codex),
                 hcActive: this.isHighContrast,
                 hcColor: this.hcForeground,
                 mirror: true,
