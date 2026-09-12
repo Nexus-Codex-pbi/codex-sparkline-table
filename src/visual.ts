@@ -35,7 +35,7 @@ import { surfaceTokens, mix } from "./shared/designTokens";
 import { applyBorder } from "./shared/borderSettings";
 import { makeCornerBrackets, CardSignatureHandle } from "./shared/cardSignature";
 import { applyCardSignature } from "./shared/cardSignatureSettings";
-import { resolveCodexTheme, neonColorFor, neonShadow, neonFilter, flareHexFor } from "./shared/codexThemeSettings";
+import { resolveCodexTheme, neonColorFor, neonShadow, neonFilter, flareHexFor, forcedInk, ResolvedCodexTheme } from "./shared/codexThemeSettings";
 import { LicenseGate } from "./shared/licensing";
 
 /** Index of the last OBSERVED (non-gap) reading, or -1 when the series is
@@ -81,13 +81,15 @@ function readableInk(preferred: string, surface: string): string {
     return best;
 }
 
-/** `force` (#819) — a forced Codex mode OWNS the text inks: a pane colour the
- *  user picked for a white card is not a choice about the Codex dark surface,
- *  so "adapt only when the value is still the default" becomes "adapt when
- *  FORCED or default". Auto passes force=false and every pane ink is kept. */
-function adaptiveInk(value: string, defaultValue: string, surface: string, force = false): string {
-    return (!force && value !== defaultValue) ? value
-        : readableInk(contrastInk(surface, defaultValue, surfaceTokens("dark").text), surface);
+/** Rule 3 of the forced-mode contract (#819) — an explicit user ink is GUARDED,
+ *  not replaced. Routed through the shared `forcedInk` so the whole suite has
+ *  ONE rule: Auto keeps the pane colour verbatim; a forced mode keeps it only
+ *  while it still reads >= 4.5:1 on the Codex surface, else falls back to this
+ *  surface's own adaptive default — which is what an untouched default (the
+ *  `value === defaultValue` sentinel) resolves to in every mode. */
+function adaptiveInk(value: string, defaultValue: string, surface: string, codex: ResolvedCodexTheme): string {
+    const modeDefault = readableInk(contrastInk(surface, defaultValue, surfaceTokens("dark").text), surface);
+    return forcedInk(value, modeDefault, codex, value === defaultValue);
 }
 
 /** One distinct Sparkline Category value — the series is built from these,
@@ -635,16 +637,22 @@ export class Visual implements IVisual {
             // user-set colour is honoured verbatim — EXCEPT under a forced
             // Codex mode, where the surface belongs to the mode and a pane
             // colour chosen for another surface is treated as the default.
+            // Rule 2 of the forced-mode contract (#819): these are CHROME
+            // fills — the header band and the row/alternate-row surfaces — not
+            // data. Under a forced mode they take the MODE's own surface token
+            // rather than a fill authored for the other tone (the warm
+            // #f8f6f0 / #faf9f5 light defaults). Auto is untouched.
             const dk = surfaceTokens("dark");
-            const adapt = (userHex: string, defHex: string, darkTok: string): string => {
-                const effective = inkOverride ? defHex : userHex;
-                return (effective === defHex && theme === "dark") ? darkTok : effective;
+            const tok = surfaceTokens(theme);
+            const adapt = (userHex: string, defHex: string, tokenKey: "card" | "canvas"): string => {
+                if (inkOverride) return tok[tokenKey];
+                return (userHex === defHex && theme === "dark") ? dk[tokenKey] : userHex;
             };
 
             // Retrieve settings values, applying high contrast overrides
-            const headerBg = this.isHighContrast ? this.hcBackground : adapt(tblSettings.headerBackground.value.value, "#f8f6f0", dk.card);
+            const headerBg = this.isHighContrast ? this.hcBackground : adapt(tblSettings.headerBackground.value.value, "#f8f6f0", "card");
             const headerTextColor = this.isHighContrast ? this.hcForeground
-                : adaptiveInk(tblSettings.headerTextColor.value.value, "#333333", headerBg, inkOverride);
+                : adaptiveInk(tblSettings.headerTextColor.value.value, "#333333", headerBg, codex);
             // Rows follow the surface: an explicit Row Color is honoured; else
             // the rows go dark on a dark background (so the whole table adapts,
             // not just the text) and stay white on light (D-06 parity).
@@ -652,8 +660,9 @@ export class Visual implements IVisual {
             // card face on a table, so an opaque white Row Color would hide
             // the Codex surface the mode just painted on the container.
             const rowColor = this.isHighContrast ? this.hcBackground
-                : ((rowUserSet && !inkOverride) ? rowColorRaw : (theme === "dark" ? dk.card : "#ffffff"));
-            const altRowColor = this.isHighContrast ? this.hcBackground : adapt(tblSettings.alternateRowColor.value.value, "#faf9f5", dk.canvas);
+                : (inkOverride ? tok.card
+                    : (rowUserSet ? rowColorRaw : (theme === "dark" ? dk.card : "#ffffff")));
+            const altRowColor = this.isHighContrast ? this.hcBackground : adapt(tblSettings.alternateRowColor.value.value, "#faf9f5", "canvas");
 
             const bandTintValueEnabled = tblSettings.bandTintValue?.value ?? true;
             const bandTintDotEnabled = spkSettings.bandTintDot?.value ?? true;
@@ -713,7 +722,7 @@ export class Visual implements IVisual {
                 // Adaptive default (D-16 sentinel): untouched shared-Title navy
                 // swaps to the dark text token on dark surfaces.
                 const setTitle = titleFmt.titleColor?.value?.value || "#1a1a2e";
-                const adaptiveTitle = adaptiveInk(setTitle, "#1a1a2e", visibleBackground, inkOverride);
+                const adaptiveTitle = adaptiveInk(setTitle, "#1a1a2e", visibleBackground, codex);
                 titleEl.style.color = this.isHighContrast
                     ? this.hcForeground
                     : adaptiveTitle;
@@ -805,8 +814,13 @@ export class Visual implements IVisual {
                 th.style.letterSpacing = "0";
                 // §8 — the header rule's fixed #e0ddd4 / #d0cdc4 separator is a
                 // painted surface and must resolve from the palette in HC.
+                // Rule 2 (#819) — it is also CHROME, so a forced mode re-tones
+                // it to that mode's border token instead of the stylesheet's
+                // warm grey, which is authored for the light tone.
                 if (this.isHighContrast) {
                     th.style.borderBottomColor = this.hcForeground;
+                } else if (inkOverride) {
+                    th.style.borderBottomColor = tok.border;
                 }
                 headerRow.appendChild(th);
             };
@@ -945,9 +959,9 @@ export class Visual implements IVisual {
                 const rowSurface = this.isHighContrast ? this.hcBackground
                     : compositeOver(rowBaseColor, rowTransparencyPct, visibleBackground);
                 const textColor = this.isHighContrast ? this.hcForeground
-                    : adaptiveInk(tblSettings.textColor.value.value, "#333333", rowSurface, inkOverride);
+                    : adaptiveInk(tblSettings.textColor.value.value, "#333333", rowSurface, codex);
                 const measureTextColor = this.isHighContrast ? this.hcForeground
-                    : adaptiveInk(tblSettings.measureTextColor.value.value, "#333333", rowSurface, inkOverride);
+                    : adaptiveInk(tblSettings.measureTextColor.value.value, "#333333", rowSurface, codex);
                 tr.style.color = textColor;
                 const rowRestingBg = this.isHighContrast
                     ? rowBaseColor
@@ -1128,14 +1142,14 @@ export class Visual implements IVisual {
                             : textColor;
                         if (rowBandColor) pill.style.backgroundColor = toRgba(rowBandColor, 85);
                         // Neon (#819) — the Δ pill is a CHIP, one of this
-                        // visual's primary marks, so it flares. The chip's
-                        // own band colour is kept (a user/data colour); only
-                        // the halo takes the flare colour under scope
-                        // "flare", or the chip's own hue under scope "all".
+                        // visual's primary marks, so it flares. Rule 1: the
+                        // band colour is SEMANTIC (rising green / flat amber /
+                        // falling red), so neither the chip nor its halo is
+                        // flare-tinted under scope "flare" — the halo glows in
+                        // the verdict's own hue in every scope.
                         // Its 11px text is body text and never glows.
                         if (codex.neon) {
-                            pill.style.boxShadow = neonShadow(
-                                neonColorFor(rowBandColor ?? textColor, codex), codex.glow);
+                            pill.style.boxShadow = neonShadow(rowBandColor ?? textColor, codex.glow);
                         }
                     }
                     deltaTd.appendChild(pill);
@@ -1203,9 +1217,15 @@ export class Visual implements IVisual {
                 // §8 — the row's grid separator came from the stylesheet's
                 // fixed warm-grey (#e8e5dc) and never saw the palette, so the
                 // table kept light-theme rules in a high-contrast report.
+                // Rule 2 (#819) — the same separator under a forced mode: grid
+                // lines are chrome, so they take the mode's border token.
                 if (this.isHighContrast) {
                     for (const cell of Array.from(tr.cells)) {
                         (cell as HTMLElement).style.borderBottomColor = this.hcForeground;
+                    }
+                } else if (inkOverride) {
+                    for (const cell of Array.from(tr.cells)) {
+                        (cell as HTMLElement).style.borderBottomColor = tok.border;
                     }
                 }
 
@@ -1330,7 +1350,10 @@ export class Visual implements IVisual {
                         // the table's primary data marks glow without a
                         // per-element filter stack. null outside Neon and,
                         // via the resolver, under high contrast.
-                        neon: codex.neon ? { color: neonColorFor(q.glowHex, codex), glow: codex.glow } : null
+                        // Rule 1 — a spark is DATA and its hue is the band
+                        // verdict (or the user's / fx colour), so the flare
+                        // never re-tints it: the group glows in its own hue.
+                        neon: codex.neon ? { color: q.glowHex, glow: codex.glow } : null
                     }
                 );
                 if (typeof savedWidth === "number" && savedWidth > 0) {
@@ -1489,7 +1512,7 @@ export class Visual implements IVisual {
                 surface = codex.surfaceHex;
                 this.container.style.backgroundColor = toRgba(codex.bgHex, codex.transparencyPct);
             }
-            empty.style.color = adaptiveInk("#333333", "#333333", surface);
+            empty.style.color = adaptiveInk("#333333", "#333333", surface, codex);
         }
         this.container.appendChild(empty);
         // §8 — the empty state's corner brackets were the one applyCardSignature
