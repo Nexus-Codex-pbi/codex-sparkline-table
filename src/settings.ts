@@ -9,6 +9,7 @@ import FormattingSettingsSlice = formattingSettings.Slice;
 import FormattingSettingsModel = formattingSettings.Model;
 
 import { BackgroundSettings } from "./shared/backgroundSettings";
+import { CodexThemeSettings } from "./shared/codexThemeSettings";
 import { TitleSettings } from "./shared/titleSettings";
 import { textAlignFor, makeFontControl } from "./shared/textFormatting";
 import { CardSignatureSettings } from "./shared/cardSignatureSettings";
@@ -355,6 +356,7 @@ export class VisualFormattingSettingsModel extends FormattingSettingsModel {
     sparklineCardSettings = new SparklineCardSettings();
     sortCardSettings = new SortCardSettings();
     background = new BackgroundSettings();
+    codexTheme = new CodexThemeSettings();
     visualBorder = new BorderSettings();
 
     constructor() {
@@ -381,6 +383,6 @@ export class VisualFormattingSettingsModel extends FormattingSettingsModel {
     // width tweaking was the worst offender; widths now auto-distribute). The
     // card + its properties stay declared elsewhere for saved-report safety.
     cards = [this.titleSettings, this.tableCardSettings, this.sparklineCardSettings, this.sortCardSettings, this.background,
-        this.cardSignature, this.visualBorder
+        this.codexTheme, this.cardSignature, this.visualBorder
     ];
 }

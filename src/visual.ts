@@ -35,6 +35,7 @@ import { surfaceTokens, mix } from "./shared/designTokens";
 import { applyBorder } from "./shared/borderSettings";
 import { makeCornerBrackets, CardSignatureHandle } from "./shared/cardSignature";
 import { applyCardSignature } from "./shared/cardSignatureSettings";
+import { resolveCodexTheme, neonColorFor, neonShadow, neonFilter } from "./shared/codexThemeSettings";
 import { LicenseGate } from "./shared/licensing";
 
 /** Index of the last OBSERVED (non-gap) reading, or -1 when the series is
@@ -80,8 +81,12 @@ function readableInk(preferred: string, surface: string): string {
     return best;
 }
 
-function adaptiveInk(value: string, defaultValue: string, surface: string): string {
-    return value !== defaultValue ? value
+/** `force` (#819) — a forced Codex mode OWNS the text inks: a pane colour the
+ *  user picked for a white card is not a choice about the Codex dark surface,
+ *  so "adapt only when the value is still the default" becomes "adapt when
+ *  FORCED or default". Auto passes force=false and every pane ink is kept. */
+function adaptiveInk(value: string, defaultValue: string, surface: string, force = false): string {
+    return (!force && value !== defaultValue) ? value
         : readableInk(contrastInk(surface, defaultValue, surfaceTokens("dark").text), surface);
 }
 
@@ -587,27 +592,67 @@ export class Visual implements IVisual {
             const rowUserSet = rowColorRaw !== "#ffffff";
             const bgPainted = (outerBgTransparencyPct ?? 100) < 100;
             const reportThemeBg = (this.host.colorPalette as any)?.background?.value as string | undefined;
-            const visibleBackground = compositeOver(outerBgHex, outerBgTransparencyPct, reportThemeBg ?? "#ffffff");
+            let visibleBackground = compositeOver(outerBgHex, outerBgTransparencyPct, reportThemeBg ?? "#ffffff");
             const governingBg = !bgPainted && rowUserSet
                 ? compositeOver(rowColorRaw, tblSettings.rowTransparency.value ?? 0, visibleBackground)
                 : visibleBackground;
-            const theme: Theme = surfaceTone(this.isHighContrast ? this.hcBackground : governingBg);
+            const autoTheme: Theme = surfaceTone(this.isHighContrast ? this.hcBackground : governingBg);
+
+            // ─── Nexus Codex Theme (#819) ───────────────────────────────
+            // ONE mode switch ABOVE the ladder resolved immediately above —
+            // this is the visual's only theme derivation, so it is the only
+            // place the resolver is called and the single object below is
+            // routed through every renderer (rows, sparks, signature).
+            //   Auto  — returns exactly the ladder's own answer: same theme,
+            //           same fill, same transparency. Zero pixel change.
+            //   Dark/Light/Neon — the Codex card token is painted at the
+            //           card's own Surface Transparency INSTEAD of the user's
+            //           Background colour, and the forced token set governs
+            //           the table's surfaces (container, header, rows) and
+            //           the text inks. Accent, band, spark and fx colours
+            //           stay the user's.
+            // High contrast already collapsed to Auto inside the resolver —
+            // no HC branch is added here.
+            const codex = resolveCodexTheme(this.formattingSettings.codexTheme, {
+                hcActive: this.isHighContrast,
+                autoTheme,
+                autoBgHex: outerBgHex,
+                autoTransparencyPct: outerBgTransparencyPct,
+                behindHex: reportThemeBg ?? "#ffffff",
+            });
+            const theme: Theme = codex.theme;
+            const inkOverride = codex.mode !== "auto";
+            if (inkOverride) {
+                // The Codex surface replaces the user's Background as BOTH the
+                // painted container fill and the surface every ink below is
+                // judged against (rows composite over it at Row Transparency).
+                visibleBackground = codex.surfaceHex;
+                this.container.style.backgroundColor = toRgba(codex.bgHex, codex.transparencyPct);
+            }
+
             // D-16 adaptive sweep: untouched LIGHT-theme defaults swap to dark
             // tokens on a dark surface so nothing is invisible. HC wins; a
-            // user-set colour is honoured verbatim.
+            // user-set colour is honoured verbatim — EXCEPT under a forced
+            // Codex mode, where the surface belongs to the mode and a pane
+            // colour chosen for another surface is treated as the default.
             const dk = surfaceTokens("dark");
-            const adapt = (userHex: string, defHex: string, darkTok: string): string =>
-                (userHex === defHex && theme === "dark") ? darkTok : userHex;
+            const adapt = (userHex: string, defHex: string, darkTok: string): string => {
+                const effective = inkOverride ? defHex : userHex;
+                return (effective === defHex && theme === "dark") ? darkTok : effective;
+            };
 
             // Retrieve settings values, applying high contrast overrides
             const headerBg = this.isHighContrast ? this.hcBackground : adapt(tblSettings.headerBackground.value.value, "#f8f6f0", dk.card);
             const headerTextColor = this.isHighContrast ? this.hcForeground
-                : adaptiveInk(tblSettings.headerTextColor.value.value, "#333333", headerBg);
+                : adaptiveInk(tblSettings.headerTextColor.value.value, "#333333", headerBg, inkOverride);
             // Rows follow the surface: an explicit Row Color is honoured; else
             // the rows go dark on a dark background (so the whole table adapts,
             // not just the text) and stay white on light (D-06 parity).
+            // A forced Codex mode owns this surface too — the rows ARE the
+            // card face on a table, so an opaque white Row Color would hide
+            // the Codex surface the mode just painted on the container.
             const rowColor = this.isHighContrast ? this.hcBackground
-                : (rowUserSet ? rowColorRaw : (theme === "dark" ? dk.card : "#ffffff"));
+                : ((rowUserSet && !inkOverride) ? rowColorRaw : (theme === "dark" ? dk.card : "#ffffff"));
             const altRowColor = this.isHighContrast ? this.hcBackground : adapt(tblSettings.alternateRowColor.value.value, "#faf9f5", dk.canvas);
 
             const bandTintValueEnabled = tblSettings.bandTintValue?.value ?? true;
@@ -668,7 +713,7 @@ export class Visual implements IVisual {
                 // Adaptive default (D-16 sentinel): untouched shared-Title navy
                 // swaps to the dark text token on dark surfaces.
                 const setTitle = titleFmt.titleColor?.value?.value || "#1a1a2e";
-                const adaptiveTitle = adaptiveInk(setTitle, "#1a1a2e", visibleBackground);
+                const adaptiveTitle = adaptiveInk(setTitle, "#1a1a2e", visibleBackground, inkOverride);
                 titleEl.style.color = this.isHighContrast
                     ? this.hcForeground
                     : adaptiveTitle;
@@ -882,7 +927,7 @@ export class Visual implements IVisual {
             const tbody = document.createElement("tbody");
             // Sparks are rendered in a 2nd pass (after the table lays out) so
             // each fills its cell's ACTUAL width — the flex Trend column.
-            const sparkQueue: Array<{ td: HTMLElement; values: (number | null)[]; color: string; band: string | null }> = [];
+            const sparkQueue: Array<{ td: HTMLElement; values: (number | null)[]; color: string; band: string | null; glowHex: string }> = [];
 
             for (let r = 0; r < rows.length; r++) {
                 const row = rows[r];
@@ -900,9 +945,9 @@ export class Visual implements IVisual {
                 const rowSurface = this.isHighContrast ? this.hcBackground
                     : compositeOver(rowBaseColor, rowTransparencyPct, visibleBackground);
                 const textColor = this.isHighContrast ? this.hcForeground
-                    : adaptiveInk(tblSettings.textColor.value.value, "#333333", rowSurface);
+                    : adaptiveInk(tblSettings.textColor.value.value, "#333333", rowSurface, inkOverride);
                 const measureTextColor = this.isHighContrast ? this.hcForeground
-                    : adaptiveInk(tblSettings.measureTextColor.value.value, "#333333", rowSurface);
+                    : adaptiveInk(tblSettings.measureTextColor.value.value, "#333333", rowSurface, inkOverride);
                 tr.style.color = textColor;
                 const rowRestingBg = this.isHighContrast
                     ? rowBaseColor
@@ -1082,6 +1127,16 @@ export class Visual implements IVisual {
                             ? readableInk(rowBandColor, compositeOver(rowBandColor, 85, rowSurface))
                             : textColor;
                         if (rowBandColor) pill.style.backgroundColor = toRgba(rowBandColor, 85);
+                        // Neon (#819) — the Δ pill is a CHIP, one of this
+                        // visual's primary marks, so it flares. The chip's
+                        // own band colour is kept (a user/data colour); only
+                        // the halo takes the flare colour under scope
+                        // "flare", or the chip's own hue under scope "all".
+                        // Its 11px text is body text and never glows.
+                        if (codex.neon) {
+                            pill.style.boxShadow = neonShadow(
+                                neonColorFor(rowBandColor ?? textColor, codex), codex.glow);
+                        }
                     }
                     deltaTd.appendChild(pill);
                 } else {
@@ -1131,7 +1186,12 @@ export class Visual implements IVisual {
                         : toRgba(resolvedSpkColorHex, spkTransparencyPct);
                     // Deferred to the 2nd pass (after table layout) so the spark
                     // fills its cell's ACTUAL width — the flex Trend column.
-                    sparkQueue.push({ td: spkTd, values: row.sparklineValues, color: spkColorForRow, band: rowBandColor });
+                    // glowHex — the row spark's OWN resolved hue (opaque form,
+                    // never the rgba string): the flare halo's colour under
+                    // Neon scope "all". The line/area/bar fill itself is left
+                    // exactly as resolved above; a spark is DATA, and the
+                    // contract keeps the user's (and the band's) data colours.
+                    sparkQueue.push({ td: spkTd, values: row.sparklineValues, color: spkColorForRow, band: rowBandColor, glowHex: resolvedSpkColorHex });
                 } else {
                     spkTd.textContent = "\u2014";
                 }
@@ -1263,7 +1323,15 @@ export class Visual implements IVisual {
                 const svg = this.renderSparkline(
                     q.values, w, spkHeight, q.color, spkType,
                     lineWidth, showDot, dotColor,
-                    { theme, hc: this.isHighContrast, bandTint: bandTintDotEnabled, bandColorHex: q.band }
+                    {
+                        theme, hc: this.isHighContrast, bandTint: bandTintDotEnabled, bandColorHex: q.band,
+                        // Neon (#819) — ONE flare per row, on the row's whole
+                        // <svg> group (line + area + bars + endpoint dot), so
+                        // the table's primary data marks glow without a
+                        // per-element filter stack. null outside Neon and,
+                        // via the resolver, under high contrast.
+                        neon: codex.neon ? { color: neonColorFor(q.glowHex, codex), glow: codex.glow } : null
+                    }
                 );
                 if (typeof savedWidth === "number" && savedWidth > 0) {
                     svg.style.width = w + "px";
@@ -1277,11 +1345,15 @@ export class Visual implements IVisual {
             // constant brand accent (never a per-row band colour) rather
             // than the KPI-family visuals' signal-tinted bracket.
             applyCardSignature(this.cornerSignature, this.formattingSettings.cardSignature, {
-                autoHex: accentToken(theme),
+                // Neon (#819) — the bracket is CHROME, not data: under scope
+                // "flare" it takes the flare colour outright (the pilot's
+                // rule), and its existing dark-only glow budget becomes the
+                // card's Glow Strength.
+                autoHex: neonColorFor(accentToken(theme), codex),
                 hcActive: this.isHighContrast,
                 hcColor: this.hcForeground,
                 mirror: true,
-                glowMix: this.isHighContrast ? 0 : (theme === "dark" ? 55 : 0),
+                glowMix: this.isHighContrast ? 0 : (codex.neon ? codex.glow : (theme === "dark" ? 55 : 0)),
                 muted: false
             });
 
@@ -1440,7 +1512,11 @@ export class Visual implements IVisual {
         strokeWidth: number,
         showDot: boolean,
         dotColor: string,
-        v3: { theme: Theme; hc: boolean; bandTint: boolean; bandColorHex: string | null }
+        v3: {
+            theme: Theme; hc: boolean; bandTint: boolean; bandColorHex: string | null;
+            /** Neon flare for this row's whole mark group, or null (#819). */
+            neon: { color: string; glow: number } | null;
+        }
     ): SVGSVGElement {
         const padding = Math.min(Math.max(2, strokeWidth), width / 2, height / 2);
         const svgNs = "http://www.w3.org/2000/svg";
@@ -1450,6 +1526,11 @@ export class Visual implements IVisual {
         svg.setAttribute("viewBox", "0 0 " + width + " " + height);
         svg.setAttribute("preserveAspectRatio", "none");
         svg.classList.add("sparkline-svg");
+        // Neon (#819) — ONE filter on the group covers the line, the area
+        // wash, the bars and the endpoint dot. It REPLACES the dark-theme
+        // per-line drop-shadow below rather than stacking on it, so the glow
+        // a viewer sees is always the card's Glow Strength, never 60% plus it.
+        if (v3.neon) svg.style.filter = neonFilter(v3.neon.color, v3.neon.glow);
 
         // §1 — the domain is taken over OBSERVED readings only; a gap must not
         // drag the scale to zero the way the old null-becomes-zero coercion did.
@@ -1526,8 +1607,9 @@ export class Visual implements IVisual {
             linePath.setAttribute("stroke-linecap", "round");
             linePath.setAttribute("stroke-linejoin", "round");
             // Neon glow on dark (per-line inline filter, no shared-id collision
-            // across the table's many sparks).
-            if (isDark) {
+            // across the table's many sparks). Skipped when the Codex Neon
+            // group flare above already owns this row's glow (#819).
+            if (isDark && !v3.neon) {
                 linePath.style.filter = `drop-shadow(0 0 2px color-mix(in srgb, ${color} 60%, transparent))`;
             }
             svg.appendChild(linePath);
@@ -1639,6 +1721,7 @@ export class Visual implements IVisual {
     }
 
     public getFormattingModel(): powerbi.visuals.FormattingModel {
+        this.formattingSettings.codexTheme.reveal();
         return this.formattingSettingsService.buildFormattingModel(this.formattingSettings);
     }
 }
