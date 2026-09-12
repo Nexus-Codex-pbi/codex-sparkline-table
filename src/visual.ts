@@ -35,7 +35,7 @@ import { surfaceTokens, mix } from "./shared/designTokens";
 import { applyBorder } from "./shared/borderSettings";
 import { makeCornerBrackets, CardSignatureHandle } from "./shared/cardSignature";
 import { applyCardSignature } from "./shared/cardSignatureSettings";
-import { resolveCodexTheme, neonColorFor, neonShadow, neonFilter, flareHexFor, forcedInk, ResolvedCodexTheme } from "./shared/codexThemeSettings";
+import { resolveCodexTheme, neonColorFor, neonShadow, neonFilter, flareHexFor, forcedInk, forcedChrome, isFxResolved, ResolvedCodexTheme } from "./shared/codexThemeSettings";
 import { LicenseGate } from "./shared/licensing";
 
 /** Index of the last OBSERVED (non-gap) reading, or -1 when the series is
@@ -642,10 +642,20 @@ export class Visual implements IVisual {
             // data. Under a forced mode they take the MODE's own surface token
             // rather than a fill authored for the other tone (the warm
             // #f8f6f0 / #faf9f5 light defaults). Auto is untouched.
+            //
+            // GUARDED (pass 2, Neil's second decision): every one of these three
+            // fills has a PICKER behind it, so the forced mode no longer seizes
+            // it outright — shared forcedChrome() keeps an explicitly chosen
+            // fill that still SEPARATES from the mode's surface (>= 1.3:1) and
+            // falls to the mode token only when it would vanish into it. The
+            // call is made inside the inkOverride branch, never around it:
+            // forcedChrome's own Auto path returns the user's hex verbatim,
+            // which would destroy the D-16 ladder below (an UNTOUCHED light
+            // default must still swap to the dark token on a dark surface).
             const dk = surfaceTokens("dark");
             const tok = surfaceTokens(theme);
             const adapt = (userHex: string, defHex: string, tokenKey: "card" | "canvas"): string => {
-                if (inkOverride) return tok[tokenKey];
+                if (inkOverride) return forcedChrome(userHex, tok[tokenKey], codex, userHex === defHex);
                 return (userHex === defHex && theme === "dark") ? dk[tokenKey] : userHex;
             };
 
@@ -659,8 +669,11 @@ export class Visual implements IVisual {
             // A forced Codex mode owns this surface too — the rows ARE the
             // card face on a table, so an opaque white Row Color would hide
             // the Codex surface the mode just painted on the container.
+            // Guarded like the other two (pass 2): rowUserSet IS this picker's
+            // "not at its default" sentinel (:594), so a deliberately chosen row
+            // fill survives a forced mode when it separates from the surface.
             const rowColor = this.isHighContrast ? this.hcBackground
-                : (inkOverride ? tok.card
+                : (inkOverride ? forcedChrome(rowColorRaw, tok.card, codex, !rowUserSet)
                     : (rowUserSet ? rowColorRaw : (theme === "dark" ? dk.card : "#ffffff")));
             const altRowColor = this.isHighContrast ? this.hcBackground : adapt(tblSettings.alternateRowColor.value.value, "#faf9f5", "canvas");
 
@@ -1047,11 +1060,23 @@ export class Visual implements IVisual {
                     rowInstanceObjects && (rowInstanceObjects as Record<string, unknown>).tableSettings &&
                     ((rowInstanceObjects as any).tableSettings.measureTextColor !== undefined)
                 );
+                // Rule 3's fx exemption, on the suite-wide test (pass 2, Neil's
+                // third decision). This is the visual's ONE guarded ink that a
+                // host rule can also resolve: `measureTextColor` above went
+                // through adaptiveInk → forcedInk, so without an exemption a
+                // forced mode could overwrite a colour the REPORT computed.
+                // isFxResolved() replaces the local object-presence idiom for
+                // the ink decision — the resolved hex differing from the pane's
+                // static swatch is the only signal a rule ran, and when it is
+                // data it is painted verbatim under every mode.
+                const measureTextPaneHex = tblSettings.measureTextColor.value.value;
+                const rawMeasureTextColor = hasMeasureTextColorOverride
+                    ? (this.measureTextColorHelper?.getColorForMeasure(rowInstanceObjects, "measureTextColor") ?? measureTextPaneHex)
+                    : measureTextPaneHex;
+                const measureTextIsFx = isFxResolved(rawMeasureTextColor, measureTextPaneHex);
                 const resolvedMeasureTextColor = this.isHighContrast
                     ? this.hcForeground
-                    : (hasMeasureTextColorOverride
-                        ? this.measureTextColorHelper?.getColorForMeasure(rowInstanceObjects, "measureTextColor") ?? measureTextColor
-                        : measureTextColor);
+                    : (measureTextIsFx ? rawMeasureTextColor : measureTextColor);
 
                 // v2 board look (01-18 Task 3) — "band-tinted value column":
                 // an active fx RULE on Measure Text Color (a more deliberate
