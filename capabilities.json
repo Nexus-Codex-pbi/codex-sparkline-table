@@ -96,6 +96,29 @@
           },
           "displayName": "Header Underline"
         },
+        "headerAlign": {
+          "displayName": "Header Alignment",
+          "type": {
+            "enumeration": [
+              {
+                "displayName": "Automatic",
+                "value": "auto"
+              },
+              {
+                "displayName": "Left",
+                "value": "left"
+              },
+              {
+                "displayName": "Center",
+                "value": "center"
+              },
+              {
+                "displayName": "Right",
+                "value": "right"
+              }
+            ]
+          }
+        },
         "rowColor": {
           "type": {
             "fill": {
@@ -223,6 +246,12 @@
             "numeric": true
           },
           "displayName": "Row Height"
+        },
+        "sidePadding": {
+          "displayName": "Side Padding",
+          "type": {
+            "numeric": true
+          }
         },
         "showGridLines": {
           "type": {
@@ -650,6 +679,16 @@
         "widths": {
           "type": {
             "text": true
+          }
+        },
+        "insetLeft": {
+          "type": {
+            "numeric": true
+          }
+        },
+        "insetRight": {
+          "type": {
+            "numeric": true
           }
         }
       }

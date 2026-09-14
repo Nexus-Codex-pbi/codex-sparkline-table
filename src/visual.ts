@@ -712,6 +712,7 @@ export class Visual implements IVisual {
             const headerFamily = tblSettings.headerFontFamily?.value || defaultFamily;
             const headerSize = (tblSettings.headerFontSize?.value || 0) > 0 ? bounded(tblSettings.headerFontSize.value, fontSize, 8, 72) : fontSize;
             const headerWeight = this.weightFor(tblSettings.headerBold?.value, "400");
+            const headerAlign = String(tblSettings.headerAlign?.value?.value ?? "auto");
             const headerStyle = tblSettings.headerItalic?.value ? "italic" : "normal";
             const headerDecoration = tblSettings.headerUnderline?.value ? "underline" : "none";
 
@@ -745,6 +746,28 @@ export class Visual implements IVisual {
 
             // Apply grid class
             this.container.className = "sparkline-table-container " + (showGrid ? "grid-lines" : "no-grid-lines");
+
+            // Side Padding (Neil 2026-09-14): the left/right inset was a hardcoded
+            // 16px in visual.less, so the outer edges could not be tightened even
+            // though interior columns are resizable. Inline style overrides the
+            // stylesheet; 16 is the shipped default so saved reports do not move.
+            const sidePad = Math.max(0, Math.min(40, Number(tblSettings.sidePadding.value ?? 16)));
+            // The outer grab handles move the TABLE'S OWN EDGE rather than
+            // trading width with a neighbour (Neil 2026-09-14: "I shift an outer
+            // handle and it moves the next column"). With table-layout:fixed and
+            // width:100% the column percentages always total 100, so shrinking
+            // the outermost column HAS to grow another one — the edge can only
+            // come in by insetting the table. These persist per side; unset
+            // falls back to the symmetric Side Padding control.
+            const resizeObj = dataView.metadata?.objects?.columnResize as
+                { insetLeft?: number; insetRight?: number } | undefined;
+            let insetLeft = Math.max(0, Math.min(400, Number(resizeObj?.insetLeft ?? sidePad)));
+            let insetRight = Math.max(0, Math.min(400, Number(resizeObj?.insetRight ?? sidePad)));
+            const applyInsets = () => {
+                this.container.style.paddingLeft = `${insetLeft}px`;
+                this.container.style.paddingRight = `${insetRight}px`;
+            };
+            applyInsets();
 
             // §8 — the resize handle's hover tint is the last painted surface
             // that lives in the stylesheet; hand it the palette's foreground so
@@ -821,6 +844,10 @@ export class Visual implements IVisual {
                 th.style.fontStyle = headerStyle;
                 th.style.textDecoration = headerDecoration;
                 th.style.height = rowHeight + "px";
+                // Header Alignment override (Neil 2026-09-14). "auto" leaves the
+                // stylesheet's per-column rule alone — labels left, measures
+                // right, trend centred — which is what every saved report has.
+                if (headerAlign !== "auto") th.style.textAlign = headerAlign;
                 // Scorecard-board header treatment (Neil 2026-07-15): muted
                 // uppercase micro-tracking — the "METRIC · NOW · Δ" eyebrow look.
                 th.style.textTransform = "uppercase";
@@ -872,9 +899,17 @@ export class Visual implements IVisual {
             const liveWidths = widths.slice();
             let minimumColumnWidths: number[] = [];
             const fitTable = () => {
-                table.style.minWidth = Math.ceil(Math.max(0,
-                    ...minimumColumnWidths.map((minimum, index) => minimum * 100 / liveWidths[index])
-                )) + "px";
+                // The table's true floor is the SUM of the per-column minimums —
+                // the width at which every column can still show its content.
+                // It used to be max(minimum[i] * 100 / liveWidths[i]), which
+                // divides by a percentage: shrink one column to 6% and a 100px
+                // column demanded a 1667px table, so narrowing the card pushed
+                // every other column off to the right and they read as vanished
+                // (Neil 2026-09-14). Proportions still hold above the floor;
+                // below it the card scrolls, which is what 1180.2.2 wants.
+                table.style.minWidth = Math.ceil(
+                    minimumColumnWidths.reduce((sum, minimum) => sum + minimum, 0)
+                ) + "px";
             };
             const persistWidths = () => {
                 const rounded = liveWidths.map(width => Math.round(width * 1000) / 1000);
@@ -885,11 +920,74 @@ export class Visual implements IVisual {
                 });
             };
             const headerThs = Array.from(headerRow.children) as HTMLElement[];
-            for (let i = 0; i < headerThs.length - 1 && i < cols.length - 1; i++) {
-                const th = headerThs[i];
+            const lastPair = Math.min(headerThs.length, cols.length) - 2;
+            // Each entry is one INTERNAL boundary: the column pair whose widths
+            // it trades, and the header its handle is painted on. The table's own
+            // two outer edges are not boundaries between columns — they are
+            // handled by addEdgeHandle below, which moves the edge instead of
+            // redistributing width.
+            const grabs: Array<{ pair: number; thIndex: number; edge: "left" | "right" }> = [];
+            for (let i = 0; i <= lastPair; i++) {
+                grabs.push({ pair: i, thIndex: i, edge: "right" });
+            }
+            // Outer handles are EDGE handles, handled separately below.
+            const persistInsets = () => {
+                this.host.persistProperties({
+                    merge: [{ objectName: "columnResize", selector: null as never,
+                        properties: { insetLeft: Math.round(insetLeft), insetRight: Math.round(insetRight) } }]
+                });
+            };
+            const addEdgeHandle = (thIndex: number, side: "left" | "right") => {
+                const th = headerThs[thIndex];
+                if (!th) return;
                 th.style.position = "relative";
                 const handle = document.createElement("div");
-                handle.className = "col-resize-handle";
+                handle.className = "col-resize-handle"
+                    + (side === "left" ? " col-resize-handle-left" : "");
+                handle.tabIndex = this.interactionsAllowed() ? 0 : -1;
+                handle.setAttribute("role", "separator");
+                handle.setAttribute("aria-orientation", "vertical");
+                handle.setAttribute("aria-label", `Move the table's ${side} edge`);
+                handle.title = `Move the table's ${side} edge`;
+                th.appendChild(handle);
+                const nudge = (deltaPx: number) => {
+                    // Dragging INWARD grows the inset on that side. Capped at
+                    // half the card so the table can never be squeezed to nothing.
+                    const cap = Math.max(0, Math.floor((this.container.clientWidth || 200) / 2) - 20);
+                    if (side === "left") insetLeft = Math.max(0, Math.min(cap, insetLeft + deltaPx));
+                    else insetRight = Math.max(0, Math.min(cap, insetRight - deltaPx));
+                    applyInsets();
+                };
+                this.listen(handle, "keydown", (e: KeyboardEvent) => {
+                    if (!this.interactionsAllowed() || !["ArrowLeft", "ArrowRight"].includes(e.key)) return;
+                    e.preventDefault(); e.stopPropagation();
+                    nudge((e.key === "ArrowRight" ? 1 : -1) * (e.shiftKey ? 10 : 2));
+                    persistInsets();
+                });
+                this.listen(handle, "mousedown", (e: MouseEvent) => {
+                    if (!this.interactionsAllowed()) return;
+                    e.preventDefault(); e.stopPropagation();
+                    let lastX = e.clientX;
+                    const onMove = (me: MouseEvent) => { nudge(me.clientX - lastX); lastX = me.clientX; };
+                    const abandon = () => {
+                        document.removeEventListener("mousemove", onMove);
+                        document.removeEventListener("mouseup", onUp);
+                        if (this.cancelDrag === abandon) this.cancelDrag = null;
+                    };
+                    const onUp = () => { abandon(); persistInsets(); };
+                    this.cancelDrag?.();
+                    this.cancelDrag = abandon;
+                    document.addEventListener("mousemove", onMove);
+                    document.addEventListener("mouseup", onUp);
+                });
+            };
+            for (const grab of grabs) {
+                const i = grab.pair;
+                const th = headerThs[grab.thIndex];
+                th.style.position = "relative";
+                const handle = document.createElement("div");
+                handle.className = "col-resize-handle"
+                    + (grab.edge === "left" ? " col-resize-handle-left" : "");
                 handle.tabIndex = this.interactionsAllowed() ? 0 : -1;
                 handle.setAttribute("role", "separator");
                 handle.setAttribute("aria-orientation", "vertical");
@@ -948,6 +1046,10 @@ export class Visual implements IVisual {
                     document.addEventListener("mousemove", onMove);
                     document.addEventListener("mouseup", onUp);
                 });
+            }
+            if (lastPair >= 0) {
+                addEdgeHandle(0, "left");
+                addEdgeHandle(lastPair + 1, "right");
             }
 
             // Body

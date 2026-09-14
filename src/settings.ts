@@ -33,6 +33,24 @@ function persistedOnly(slice: FormattingSettingsSlice): FormattingSettingsSlice 
 }
 
 class TableCardSettings extends FormattingSettingsCard {
+    // The container's left/right inset. Was hardcoded to 16px in visual.less, so
+    // interior column widths auto-distributed but the OUTER edges could not be
+    // pulled in (Neil 2026-09-14). Default 16 keeps every existing report
+    // pixel-identical. Cert-safe at any value including 0: the contextmenu
+    // listener sits on this.target, not on the padded container, so 1180.2.5
+    // right-clicks still land. At 0 the last-column delta pill can clip — that is
+    // the author's call, which is the point of exposing it.
+    sidePadding = new formattingSettings.NumUpDown({
+        name: "sidePadding",
+        displayName: "Side Padding",
+        description: "Space between the table and the left/right card edges (px)",
+        value: 16,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 40 },
+        },
+    });
+
     headerBackground = new formattingSettings.ColorPicker({
         name: "headerBackground",
         displayName: "Header Background",
@@ -150,6 +168,26 @@ class TableCardSettings extends FormattingSettingsCard {
     headerUnderline = this.headerFontBundle.underline;
     headerFont = this.headerFontBundle.control;
 
+    // Header alignment (Neil 2026-09-14). An ItemDropdown, not the shared
+    // alignSlice/AlignmentGroup, because AlignmentGroup has no "auto" and the
+    // header alignment today is LAYOUT-determined per column (category left,
+    // measure right, sparkline centre — visual.less). Defaulting a three-way
+    // control to "left" would silently re-align every measure header in every
+    // saved report. "auto" keeps that per-column behaviour and is the default;
+    // the other three override every header at once.
+    headerAlign = new formattingSettings.ItemDropdown({
+        name: "headerAlign",
+        displayName: "Header Alignment",
+        description: "Automatic follows each column (labels left, values right, trend centred)",
+        items: [
+            { displayName: "Automatic", value: "auto" },
+            { displayName: "Left", value: "left" },
+            { displayName: "Center", value: "center" },
+            { displayName: "Right", value: "right" },
+        ],
+        value: { displayName: "Automatic", value: "auto" },
+    });
+
     fontSize = new formattingSettings.NumUpDown({
         name: "fontSize",
         displayName: "Font Size",
@@ -208,13 +246,21 @@ class TableCardSettings extends FormattingSettingsCard {
         this.textColor,
         this.fontSize,
         this.rowHeight,
+        this.sidePadding,
         this.showGridLines,
         this.displayUnits,
         this.decimalPlaces,
+        // Header treatment is author-facing (Neil 2026-09-14): these were
+        // persisted-only, so the properties existed and were applied at render
+        // but no control was reachable in the pane.
+        this.headerFont,
+        this.headerAlign,
+        this.headerBackground,
+        this.headerTextColor,
         ...[
-            this.headerBackground, this.headerTextColor, this.alternateRowColor,
+            this.alternateRowColor,
             this.rowTransparency, this.measureTextColor, this.bandTintValue,
-            this.rowLabelFont, this.valueFont, this.headerFont
+            this.rowLabelFont, this.valueFont
         ].map(persistedOnly)
     ];
 }

@@ -126,6 +126,15 @@
 
 // Click-and-drag column resize handle — thin strip on the header cell's right
 // border. Transparent until hover (then the brand violet), cursor col-resize.
+// Outer-edge variant (Neil 2026-09-14): the far LEFT border of the first column.
+// Handles are right-border by default, which left both outer borders with nothing
+// to grab even though the widths they control were reachable from the boundary
+// inside them. `left: 0` puts a handle on the table's own left edge.
+.col-resize-handle.col-resize-handle-left {
+    right: auto;
+    left: 0;
+}
+
 .col-resize-handle {
     position: absolute;
     top: 0;
