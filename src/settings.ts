@@ -11,6 +11,7 @@ import FormattingSettingsModel = formattingSettings.Model;
 import { BackgroundSettings } from "./shared/backgroundSettings";
 import { CodexThemeSettings } from "./shared/codexThemeSettings";
 import { TitleSettings } from "./shared/titleSettings";
+import { LicenceSettings } from "./shared/licenceSettings";
 import { textAlignFor, makeFontControl } from "./shared/textFormatting";
 import { CardSignatureSettings } from "./shared/cardSignatureSettings";
 import { BorderSettings } from "./shared/borderSettings";
@@ -428,7 +429,9 @@ export class VisualFormattingSettingsModel extends FormattingSettingsModel {
     // columnWidthSettings retired from the pane (Neil 2026-07-15 — the px-by-px
     // width tweaking was the worst offender; widths now auto-distribute). The
     // card + its properties stay declared elsewhere for saved-report safety.
+    licence = new LicenceSettings();
     cards = [this.titleSettings, this.tableCardSettings, this.sparklineCardSettings, this.sortCardSettings, this.background,
-        this.codexTheme, this.cardSignature, this.visualBorder
+        this.codexTheme, this.cardSignature, this.visualBorder,
+        this.licence
     ];
 }
